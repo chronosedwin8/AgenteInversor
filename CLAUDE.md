@@ -63,7 +63,7 @@ Local (Windows, venv): `.venv/Scripts/python -m pytest tests/unit`.
 
 - [x] Fase 0 — Base del proyecto (aprobada)
 - [x] Fase 1 — Datos y adaptador de solo lectura (aprobada)
-- [x] Fase 2 — Estrategia y backtester (pendiente de aprobación)
+- [x] Fase 2 — Estrategia y backtester: H0 no pasa; Fase 2b (docs/fase2b-*.md): H1 rentable pero falla DD y últimos 3 meses en confirmación. Decisión de Edwin pendiente
 - [ ] Fase 3 — Riesgo y portafolio
 - [ ] Fase 4 — Ejecución en Spot Testnet
 - [ ] Fase 5 — Capa de IA
