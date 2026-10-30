@@ -19,11 +19,11 @@ consecutive_losses_pause_hours: 24
 drawdown_alert_pct: 6              # capital ≤ 188 → riesgo baja a reduced_risk_per_trade_pct
 reduced_risk_per_trade_pct: 0.25
 
-# Kill switch: −10% del capital inicial → capital ≤ 180 USD.
-# Pregunta abierta en PLAN.md: ¿desde el capital inicial o desde el máximo? Se usa el inicial
-# hasta que Edwin decida (kill_switch_basis: initial | peak).
+# Kill switch: −10% desde el MÁXIMO alcanzado por el capital (decisión de Edwin, 2026-10-30).
+# Con 200 USD sin ganancias previas sigue siendo 180 USD; si el capital sube a 250, salta en 225.
+# Tras un reinicio manual, el máximo de referencia pasa a ser el capital de ese momento.
 kill_switch_pct: 10
-kill_switch_basis: initial
+kill_switch_basis: peak
 
 leverage: none
 fee_rate: 0.001                    # 0,1% por lado (0,00075 con BNB)

@@ -48,6 +48,7 @@ al terminar cada fase se muestra qué se hizo y cómo se cumplen sus criterios d
 - Ojo: los CSV de data.binance.vision usan microsegundos desde 2025-01-01 (antes milisegundos);
   la API REST usa milisegundos. `bot.data.klines` detecta la unidad.
 
+- Kill switch: −10% desde el MÁXIMO del capital (decisión de Edwin, docs/decision-kill-switch.md).
 - La capa de IA está aplazada hasta demostrar que aporta valor medible superior a su costo.
 - No modificar los parámetros de H1 ni relajar criterios retrospectivamente (instrucción de
   Edwin, 2026-10-30).

@@ -6,7 +6,8 @@ Reglas (config/risk.yaml, PLAN.md "Gestión de riesgo"):
 - máx. 4 operaciones nuevas por día (día de Bogotá);
 - pérdida diaria ≥ 2% del capital al inicio del día → sin entradas hasta las 00:00 de Bogotá;
 - 3 pérdidas consecutivas → pausa de 24 h;
-- kill switch: capital ≤ 180 USD (−10% del inicial) → se cancelan órdenes, se cierran
+- kill switch: capital ≤ 90% del máximo alcanzado (o del inicial, según `kill_switch_basis`;
+  nunca por debajo de 180 USD con 200 iniciales) → se cancelan órdenes, se cierran
   posiciones y no se aprueba nada más. Persiste entre reinicios; solo se desactiva con
   `reset_kill_switch` y la frase de confirmación.
 
@@ -267,6 +268,9 @@ class RiskManager:
         """Solo manual. El nuevo capital de referencia sigue siendo el inicial (o el máximo)."""
         if confirmation != RESET_CONFIRMATION:
             raise PermissionError("frase de confirmación incorrecta: el kill switch sigue activo")
+        if self.cfg.kill_switch_basis == "peak":
+            # Nuevo punto de partida: el máximo de referencia pasa a ser el capital actual.
+            self.state.peak_equity = equity
         if equity <= self.kill_switch_capital():
             raise PermissionError("el capital sigue por debajo del umbral del kill switch")
         self.state.kill_switch = False

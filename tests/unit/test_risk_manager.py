@@ -133,12 +133,42 @@ def test_kill_switch_reset_is_manual_only() -> None:
     assert ev.kind is RiskEventKind.KILL_SWITCH_RESET and not rm.kill_switch_active
 
 
+def test_repo_config_uses_peak_basis() -> None:
+    assert CFG.kill_switch_basis == "peak"  # decisión de Edwin, 2026-10-30
+
+
 def test_kill_switch_peak_basis_option() -> None:
     rm = RiskManager(CFG.model_copy(update={"kill_switch_basis": "peak"}))
     rm.update(NOW, D(250))
     assert rm.kill_switch_capital() == D(225)
+    rm.update(NOW, D("225.01"))
+    assert not rm.kill_switch_active
     rm.update(NOW, D(225))
     assert rm.kill_switch_active
+
+
+def test_peak_basis_never_below_initial_threshold() -> None:
+    rm = RiskManager(CFG.model_copy(update={"kill_switch_basis": "peak"}))
+    rm.update(NOW, D(195))  # sin ganancias: el máximo de referencia sigue siendo 200
+    assert rm.kill_switch_capital() == D(180)
+
+
+def test_initial_basis_ignores_peak() -> None:
+    rm = RiskManager(CFG.model_copy(update={"kill_switch_basis": "initial"}))
+    rm.update(NOW, D(250))
+    rm.update(NOW, D(200))
+    assert rm.kill_switch_capital() == D(180) and not rm.kill_switch_active
+
+
+def test_manual_reset_with_peak_basis_resets_reference() -> None:
+    rm = RiskManager(CFG.model_copy(update={"kill_switch_basis": "peak"}))
+    rm.update(NOW, D(250))
+    rm.update(NOW, D(224))
+    assert rm.kill_switch_active
+    rm.reset_kill_switch(RESET_CONFIRMATION, NOW, D(224))
+    assert not rm.kill_switch_active and rm.kill_switch_capital() == D("201.6")
+    rm.update(NOW, D(210))
+    assert not rm.kill_switch_active
 
 
 def test_engine_kill_switch_closes_everything_and_stops_trading(

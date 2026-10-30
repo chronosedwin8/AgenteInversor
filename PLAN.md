@@ -225,7 +225,7 @@ Crea también CLAUDE.md con estas reglas para futuras sesiones.
 ### Preguntas abiertas
 
 - [ ] ¿Tu cuenta de Binance en Colombia muestra bStocks y permite operarlos por API? Si no, el bot arranca solo con cripto.
-- [ ] ¿El 10% se mide desde los 200 USD iniciales (apagado en 180 USD, como está en el plan) o desde el máximo que alcance el capital?
+- [x] ¿El 10% se mide desde los 200 USD iniciales o desde el máximo? → **Desde el máximo** (Edwin, 2026-10-30; ver docs/decision-kill-switch.md).
 - [ ] ¿Dónde correrá: EC2 (¿qué región?) o un equipo propio encendido 24/7?
 - [ ] ¿Telegram te sirve para alertas y comandos?
 - [ ] ¿Cuál es el presupuesto mensual para la API de Claude y para la fuente de noticias?
