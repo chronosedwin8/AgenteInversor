@@ -30,6 +30,7 @@ services:
       DATABASE_URL: postgresql://bot:${POSTGRES_PASSWORD:-local-dev-only}@db:5432/trading_bot
     volumes:
       - botdata:/app/data
+      - ./reports:/app/reports
     depends_on:
       db:
         condition: service_healthy

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 import psycopg
 from psycopg.types.json import Jsonb
@@ -99,6 +99,28 @@ class CandleStore:
             (symbol, interval, start, end),
         )
         return [cast(datetime, row[0]) for row in await cur.fetchall()]
+
+    async def load_candles(self, symbol: str, interval: str) -> list[Candle]:
+        """Toda la serie guardada, en orden temporal."""
+        cur = await self._conn.execute(
+            f"SELECT {_COLUMNS} FROM candles WHERE symbol = %s AND interval = %s"  # noqa: S608
+            " ORDER BY open_time",
+            (symbol, interval),
+        )
+        rows = await cur.fetchall()
+        return [
+            Candle(*cast(tuple[Any, ...], r[:13]))  # columnas en el mismo orden que Candle
+            for r in rows
+        ]
+
+    async def latest_symbol_info(self, symbol: str) -> dict[str, Any] | None:
+        cur = await self._conn.execute(
+            "SELECT raw FROM symbol_info_snapshots WHERE symbol = %s"
+            " ORDER BY fetched_at DESC LIMIT 1",
+            (symbol,),
+        )
+        row = await cur.fetchone()
+        return cast(dict[str, Any], row[0]) if row else None
 
     async def save_symbol_snapshots(self, filters: dict[str, SymbolFilters]) -> None:
         async with self._conn.cursor() as cur:

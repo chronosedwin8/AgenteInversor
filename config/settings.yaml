@@ -19,7 +19,7 @@ universe:
 
 data:
   intervals: ["15m", "1h"]
-  history_months: 13            # 12+ meses de historia (meses completos) + mes en curso
+  history_months: 36            # meses completos + mes en curso (Fase 1 pedía 12+; el backtest usa 36)
   cache_dir: data/cache         # zips de data.binance.vision (verificados con SHA256)
   # Solo datos de mercado: estos hosts no aceptan órdenes.
   rest_base_url: https://data-api.binance.vision

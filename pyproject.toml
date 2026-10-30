@@ -26,6 +26,8 @@ dev = [
     "ruff>=0.14",
     "mypy>=1.18",
     "types-PyYAML",
+    "ta-lib>=0.6",  # solo como referencia independiente en tests de indicadores
+    "numpy>=2.0",
 ]
 
 [project.scripts]

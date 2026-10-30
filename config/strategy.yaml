@@ -34,6 +34,9 @@ quality:
 entry:
   order_type: LIMIT_MAKER
   cancel_after_candles: 2     # 30 min
+  # Nuevas entradas solo en la ventana horaria de settings.yaml (07:00–18:00 Bogotá).
+  # El plan dice "preferentemente": el walk-forward prueba ambas opciones.
+  enforce_entry_window: true
 
 exit:
   stop_atr_multiple: 1.5

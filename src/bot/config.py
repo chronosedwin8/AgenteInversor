@@ -155,6 +155,7 @@ class QualityParams(_Frozen):
 class EntryParams(_Frozen):
     order_type: Literal["LIMIT_MAKER"]
     cancel_after_candles: int
+    enforce_entry_window: bool = True
 
 
 class ExitParams(_Frozen):
@@ -233,6 +234,29 @@ class RiskConfig(_Frozen):
         return self.initial_capital_usdt * (1 - self.drawdown_alert_pct / 100)
 
 
+# ---------------------------------------------------------------- backtest.yaml
+
+
+class WalkForwardConfig(_Frozen):
+    warmup_months: int = Field(ge=1)
+    train_months: int = Field(ge=1)
+    test_months: int = Field(ge=1)
+    min_train_trades: int = Field(ge=1)
+
+
+class AcceptanceConfig(_Frozen):
+    min_trades: int
+    min_profit_factor: float
+    max_drawdown_pct: float
+    last_months_positive: int
+
+
+class BacktestConfig(_Frozen):
+    walk_forward: WalkForwardConfig
+    grid: dict[str, tuple[float | bool, ...]]
+    acceptance: AcceptanceConfig
+
+
 # ---------------------------------------------------------------- carga
 
 
@@ -240,6 +264,7 @@ class AppConfig(_Frozen):
     settings: Settings
     strategy: StrategyConfig
     risk: RiskConfig
+    backtest: BacktestConfig
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -256,4 +281,5 @@ def load_config(config_dir: Path | None = None) -> AppConfig:
         settings=Settings.model_validate(_read_yaml(cfg_dir / "settings.yaml")),
         strategy=StrategyConfig.model_validate(_read_yaml(cfg_dir / "strategy.yaml")),
         risk=RiskConfig.model_validate(_read_yaml(cfg_dir / "risk.yaml")),
+        backtest=BacktestConfig.model_validate(_read_yaml(cfg_dir / "backtest.yaml")),
     )

@@ -7,6 +7,7 @@ Comandos:
   verify         informe de huecos (código de salida 1 si hay huecos sin explicar)
   exchange-info  muestra los filtros de exchangeInfo del universo
   mode           muestra el modo resuelto (sin secretos)
+  backtest       walk-forward sobre la historia guardada; informe en reports/
 """
 
 from __future__ import annotations
@@ -19,11 +20,13 @@ import sys
 import time
 from collections.abc import Coroutine
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import aiohttp
 
 from bot import __version__
+from bot.backtest.runner import load_symbol_data, run_backtest
 from bot.config import AppConfig, EnvSettings, load_config
 from bot.data.backfill import HistorySync, VerifyReport, history_window
 from bot.data.live import LiveCandles
@@ -141,6 +144,31 @@ async def cmd_verify(cfg: AppConfig, env: EnvSettings) -> int:
     return 0 if all(r.ok for r in reports) else 1
 
 
+async def cmd_backtest(cfg: AppConfig, env: EnvSettings) -> int:
+    conn = await connect(_dsn(env))
+    async with conn:
+        await migrate(conn, DEFAULT_MIGRATIONS_DIR)
+        started = time.monotonic()
+        data = await load_symbol_data(CandleStore(conn), cfg, cfg.settings.universe.active_symbols)
+    log.info(
+        "backtest_data_loaded",
+        snapshots={s: len(d.snapshots) for s, d in data.items()},
+        seconds=round(time.monotonic() - started, 1),
+    )
+    out = await asyncio.to_thread(
+        run_backtest, cfg, data, Path("reports"), lambda msg: log.info("backtest", msg=msg)
+    )
+    wf = out.walk_forward
+    m = wf.oos_metrics
+    print(f"\nVeredicto Fase 2: {'PASA' if wf.passed else 'NO PASA'}")
+    for name, (ok, detail) in wf.acceptance.items():
+        print(f"  {'OK ' if ok else 'NO '} {name:<22} {detail}")
+    print(f"  resultado fuera de muestra: {m.net_pnl:+.2f} USDT ({m.return_pct:+.2f}%), "
+          f"win rate {m.win_rate:.1%}, R medio {m.avg_r:+.3f}")  # fmt: skip
+    print(f"  informe: {out.report_path}")
+    return 0 if wf.passed else 1
+
+
 def cmd_mode(env: EnvSettings) -> int:
     res = resolve_mode(env)
     print(f"solicitado={res.requested!r} resuelto={res.mode.value}")
@@ -189,8 +217,7 @@ async def cmd_run(cfg: AppConfig, env: EnvSettings) -> int:
     log.info("bot_starting", version=__version__, mode=res.mode.value, requested=res.requested)
 
     if res.mode is TradingMode.BACKTEST:
-        log.error("backtest_not_available", detail="el backtester llega en la Fase 2")
-        return 2
+        return await cmd_backtest(cfg, env)
     if res.mode is TradingMode.LIVE:
         log.error("live_not_available", detail="no hay ejecución de órdenes hasta la Fase 4/8")
         return 2
@@ -270,6 +297,7 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("verify")
     sub.add_parser("exchange-info")
     sub.add_parser("mode")
+    sub.add_parser("backtest")
     return p
 
 
@@ -294,6 +322,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_async(cmd_backfill(cfg, env, args.months))
     if command == "verify":
         return _run_async(cmd_verify(cfg, env))
+    if command == "backtest":
+        return _run_async(cmd_backtest(cfg, env))
     return _run_async(cmd_run(cfg, env))
 
 

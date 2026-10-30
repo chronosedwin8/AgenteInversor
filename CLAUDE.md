@@ -39,6 +39,12 @@ al terminar cada fase se muestra qué se hizo y cómo se cumplen sus criterios d
   (no aceptan órdenes).
 - SDK oficial: `binance-sdk-spot` (sustituye a `binance-connector`). Verificar versión vigente
   antes de cambiarla.
+- Indicadores (`strategy/indicators.py`) incrementales, validados contra TA-Lib en tests (TA-Lib
+  es solo dependencia de desarrollo). En float: son analítica; el dinero va en Decimal.
+- Backtest: `config/backtest.yaml` (walk-forward + rejilla + criterios) se fija ANTES de ver
+  resultados. Nunca ajustar parámetros ni reglas mirando el periodo fuera de muestra.
+- El `RiskManager` (`risk/manager.py`) es una sola clase para backtest/paper/live; la Fase 3 le
+  añade límites diarios, rachas, drawdown y kill switch.
 - Ojo: los CSV de data.binance.vision usan microsegundos desde 2025-01-01 (antes milisegundos);
   la API REST usa milisegundos. `bot.data.klines` detecta la unidad.
 
@@ -47,6 +53,7 @@ al terminar cada fase se muestra qué se hizo y cómo se cumplen sus criterios d
 ```bash
 docker compose up -d --build                  # bot (paper por defecto) + PostgreSQL
 docker compose run --rm bot python -m bot.main verify     # informe de huecos de velas
+docker compose run --rm bot python -m bot.main backtest   # walk-forward; informe en reports/
 docker compose --profile ci run --rm --build ci           # mismo pipeline que CI (ruff, mypy, pytest)
 ```
 
@@ -54,9 +61,9 @@ Local (Windows, venv): `.venv/Scripts/python -m pytest tests/unit`.
 
 ## Estado de fases
 
-- [x] Fase 0 — Base del proyecto (pendiente de aprobación)
-- [x] Fase 1 — Datos y adaptador de solo lectura (pendiente de aprobación)
-- [ ] Fase 2 — Estrategia y backtester
+- [x] Fase 0 — Base del proyecto (aprobada)
+- [x] Fase 1 — Datos y adaptador de solo lectura (aprobada)
+- [x] Fase 2 — Estrategia y backtester (pendiente de aprobación)
 - [ ] Fase 3 — Riesgo y portafolio
 - [ ] Fase 4 — Ejecución en Spot Testnet
 - [ ] Fase 5 — Capa de IA
