@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from bot.backtest.engine import Backtester, ParamPeriod, SymbolData, candidate_indices
 from bot.backtest.metrics import Metrics, compute_metrics
@@ -13,13 +14,14 @@ from bot.backtest.report import write_report
 from bot.backtest.walkforward import (
     WalkForwardResult,
     apply_combo,
+    grid_combos,
     loosest_combo,
     run_walk_forward,
 )
 from bot.config import AppConfig
 from bot.data.store import CandleStore
 from bot.exchange.filters import SymbolFilters
-from bot.strategy.rules import RuleParams
+from bot.strategy.rules import PullbackStrategy, RuleParams
 from bot.strategy.snapshot import build_snapshots
 
 
@@ -51,7 +53,7 @@ class BacktestOutput:
 
 
 def build_backtester(cfg: AppConfig, data: dict[str, SymbolData], base: RuleParams) -> Backtester:
-    loose = apply_combo(base, loosest_combo(cfg.backtest.grid), cfg.settings)
+    loose = PullbackStrategy(apply_combo(base, loosest_combo(cfg.backtest.grid), cfg.settings))
     candidates = {s: candidate_indices(d.snapshots, loose) for s, d in data.items()}
     return Backtester(
         data,
@@ -72,13 +74,16 @@ def run_backtest(
     bt = build_backtester(cfg, data, base)
     progress(f"candidatos por par: { {s: len(c) for s, c in (bt.candidates or {}).items()} }")
 
+    def factory(combo: Mapping[str, Any]) -> PullbackStrategy:
+        return PullbackStrategy(apply_combo(base, combo, cfg.settings))
+
     wf = run_walk_forward(
-        bt, base, cfg.backtest.grid, cfg.settings, cfg.backtest.walk_forward,
+        bt, factory, grid_combos(cfg.backtest.grid), cfg.backtest.walk_forward,
         cfg.backtest.acceptance, progress,
     )  # fmt: skip
 
     first, last = bt.timeline[0], bt.timeline[-1]
-    base_run = bt.run([ParamPeriod(first, base)], first, last)
+    base_run = bt.run([ParamPeriod(first, PullbackStrategy(base))], first, last)
     baseline = compute_metrics(base_run.trades, base_run.equity, base_run.initial_capital)
 
     r = cfg.risk

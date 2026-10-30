@@ -15,7 +15,7 @@ CONFIG = Path("config")
 def test_repo_config_loads() -> None:
     cfg = load_config(CONFIG)
     assert cfg.settings.universe.crypto.symbols == ("BTCUSDT", "ETHUSDT", "SOLUSDT")
-    assert cfg.settings.data.intervals == ("15m", "1h")
+    assert cfg.settings.data.intervals == ("15m", "1h", "4h", "1d")
     assert cfg.settings.data.history_months >= 12
     assert cfg.strategy.entry.order_type == "LIMIT_MAKER"
 

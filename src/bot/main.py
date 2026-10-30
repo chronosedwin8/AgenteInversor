@@ -8,6 +8,7 @@ Comandos:
   exchange-info  muestra los filtros de exchangeInfo del universo
   mode           muestra el modo resuelto (sin secretos)
   backtest       walk-forward sobre la historia guardada; informe en reports/
+  research       Fase 2b: hipótesis pre-registradas (desarrollo + confirmación)
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from typing import Any
 import aiohttp
 
 from bot import __version__
+from bot.backtest.research import load_bars, load_hypotheses, run_research
 from bot.backtest.runner import load_symbol_data, run_backtest
 from bot.config import AppConfig, EnvSettings, load_config
 from bot.data.backfill import HistorySync, VerifyReport, history_window
@@ -138,6 +140,7 @@ async def cmd_verify(cfg: AppConfig, env: EnvSettings) -> int:
         for symbol in cfg.settings.universe.active_symbols:
             for interval in data.intervals:
                 start, end = history_window(now, interval, data.history_months)
+                start = await sync.effective_start(symbol, interval, start)
                 reports.append(await sync.verify(symbol, interval, start, end))
     for r in reports:
         _print_report(r)
@@ -167,6 +170,30 @@ async def cmd_backtest(cfg: AppConfig, env: EnvSettings) -> int:
           f"win rate {m.win_rate:.1%}, R medio {m.avg_r:+.3f}")  # fmt: skip
     print(f"  informe: {out.report_path}")
     return 0 if wf.passed else 1
+
+
+async def cmd_research(cfg: AppConfig, env: EnvSettings) -> int:
+    hyp = load_hypotheses(env.config_dir / "hypotheses.yaml")
+    conn = await connect(_dsn(env))
+    async with conn:
+        await migrate(conn, DEFAULT_MIGRATIONS_DIR)
+        bars = await load_bars(CandleStore(conn), cfg.settings.universe.active_symbols,
+                               hyp.timeframes)  # fmt: skip
+    log.info("research_data_loaded", bars={s: len(b.bars) for s, b in bars.items()})
+    out = await asyncio.to_thread(
+        run_research, cfg, hyp, bars, Path("reports"), Path("reports") / "fase2b-resultados.md",
+        lambda msg: log.info("research", msg=msg),
+    )  # fmt: skip
+    for stage in (out.development, out.confirmation):
+        if stage is None:
+            continue
+        for k, r in sorted(stage.results.items()):
+            m = r.oos_metrics
+            print(f"[{stage.name}] {k}: {'PASA' if r.passed else 'no pasa'}  ops={m.trades} "
+                  f"PF={m.profit_factor:.2f} DD={m.max_drawdown_pct:.2f}% "
+                  f"ult3m={r.last_months_pnl:+.2f} neto={m.net_pnl:+.2f}")  # fmt: skip
+    print(f"ganadora: {out.winner or 'ninguna'}; informe: {out.report_path}")
+    return 0 if out.winner else 1
 
 
 def cmd_mode(env: EnvSettings) -> int:
@@ -298,6 +325,7 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("exchange-info")
     sub.add_parser("mode")
     sub.add_parser("backtest")
+    sub.add_parser("research")
     return p
 
 
@@ -324,6 +352,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_async(cmd_verify(cfg, env))
     if command == "backtest":
         return _run_async(cmd_backtest(cfg, env))
+    if command == "research":
+        return _run_async(cmd_research(cfg, env))
     return _run_async(cmd_run(cfg, env))
 
 

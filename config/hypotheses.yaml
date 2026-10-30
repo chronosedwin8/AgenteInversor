@@ -1,0 +1,30 @@
+# Fase 2b: hipótesis pre-registradas (docs/fase2b-protocolo.md). NO modificar tras ver
+# resultados. Costos y riesgo: strategy.yaml (costs) y risk.yaml. Criterios: backtest.yaml.
+
+timeframes:
+  signal: 4h
+  regime: 1d
+
+walk_forward:
+  warmup_months: 1
+  train_months: 6
+  test_months: 3
+  min_train_trades: 10
+
+stages:
+  desarrollo:   { start: 2023-10-01, end: null }        # ya mirado (H0)
+  confirmacion: { start: 2020-01-01, end: 2023-10-01 }  # holdout nunca mirado
+
+H1:
+  defaults: { regime_ema: 100, breakout_n: 20, stop_atr: 2.0, stop_max_pct: 10.0, trail_atr: 3.0 }
+  grid:
+    regime_ema: [50, 100]
+    breakout_n: [20, 40]
+    trail_atr: [3.0, 4.0]
+
+H2:
+  defaults: { regime_ema: 100, rsi_below: 20.0, stop_atr: 2.5, stop_max_pct: 10.0, exit_ema: 5, max_bars: 12 }
+  grid:
+    regime_ema: [50, 100]
+    rsi_below: [10.0, 20.0]
+    max_bars: [6, 12]

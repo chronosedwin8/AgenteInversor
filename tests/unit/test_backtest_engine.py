@@ -12,7 +12,7 @@ import pytest
 from bot.backtest.engine import Backtester, BacktestResult, ParamPeriod, SymbolData
 from bot.backtest.metrics import compute_metrics, max_drawdown_pct
 from bot.exchange.filters import SymbolFilters
-from bot.strategy.rules import ExitReason
+from bot.strategy.rules import ExitReason, PullbackStrategy
 from bot.strategy.snapshot import Snapshot
 from tests.strategy_helpers import BASE, CFG, M15, PARAMS, signal_window, snap
 
@@ -30,7 +30,7 @@ def run(snaps: list[Snapshot], filters: SymbolFilters, **extra: list[Snapshot]) 
         data[sym] = SymbolData(sym, s, filters)
     bt = Backtester(data, CFG.risk, FEE, SLIP)
     start = snaps[0].close_time
-    return bt.run([ParamPeriod(start, PARAMS)], start, snaps[-1].close_time + M15)
+    return bt.run([ParamPeriod(start, PullbackStrategy(PARAMS))], start, snaps[-1].close_time + M15)
 
 
 def fill_candle(i: int = 4) -> Snapshot:
@@ -122,9 +122,15 @@ def test_no_entries_after_end_but_open_positions_are_managed(filters: SymbolFilt
     bt = Backtester(data, CFG.risk, FEE, SLIP)
     start = snaps[0].close_time
     # El periodo termina justo después de la señal: la posición se llena y se gestiona igual.
-    res = bt.run([ParamPeriod(start, PARAMS)], start, snaps[3].close_time + timedelta(seconds=1))
+    res = bt.run(
+        [ParamPeriod(start, PullbackStrategy(PARAMS))],
+        start,
+        snaps[3].close_time + timedelta(seconds=1),
+    )
     assert len(res.trades) == 1
-    res2 = bt.run([ParamPeriod(start, PARAMS)], start, snaps[3].close_time)  # señal fuera
+    res2 = bt.run(
+        [ParamPeriod(start, PullbackStrategy(PARAMS))], start, snaps[3].close_time
+    )  # señal fuera
     assert res2.trades == [] and res2.signals == 0
 
 

@@ -18,8 +18,8 @@ universe:
     force_exit_minutes_before_close: 10
 
 data:
-  intervals: ["15m", "1h"]
-  history_months: 36            # meses completos + mes en curso (Fase 1 pedía 12+; el backtest usa 36)
+  intervals: ["15m", "1h", "4h", "1d"]
+  history_months: 81            # desde ene-2020 (holdout de la Fase 2b) + mes en curso
   cache_dir: data/cache         # zips de data.binance.vision (verificados con SHA256)
   # Solo datos de mercado: estos hosts no aceptan órdenes.
   rest_base_url: https://data-api.binance.vision

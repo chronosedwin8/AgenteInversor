@@ -22,6 +22,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from enum import StrEnum
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from bot.config import Settings, StrategyConfig
@@ -83,9 +84,11 @@ class RuleParams:
 class EntrySignal:
     symbol: str
     time: datetime  # close_time de la vela gatillo
-    limit_price: float
+    limit_price: float  # precio límite; en órdenes a mercado, precio de referencia (cierre)
     atr: float
     stop: float
+    order: Literal["limit", "market"] = "limit"
+    tag: str = ""  # qué (sub)estrategia generó la señal
 
     @property
     def risk_per_unit(self) -> float:
@@ -171,6 +174,7 @@ class ExitReason(StrEnum):
     TRAILING_STOP = "stop_trailing"
     CLOSE_BELOW_EMA = "cierre_bajo_ema20"
     TIME_STOP = "stop_tiempo"
+    MEAN_REVERTED = "objetivo_media"
     MAX_HOLDING = "tiempo_maximo"
     END_OF_DATA = "fin_de_datos"
 
@@ -190,6 +194,8 @@ class PositionPlan:
     partial_done: bool = False
     reached_min_r: bool = False
     stop_kind: ExitReason = ExitReason.STOP
+    tag: str = ""
+    partial_fraction: float = 0.5
 
     @property
     def r(self) -> float:
@@ -202,7 +208,10 @@ class PositionPlan:
         if r <= 0:
             raise ValueError("el stop debe estar por debajo de la entrada")
         breakeven = entry * (1 + fee_rate) / (1 - fee_rate)
-        return cls(entry, stop, stop, entry + p.partial_take_r * r, breakeven, filled_at, entry)
+        return cls(
+            entry, stop, stop, entry + p.partial_take_r * r, breakeven, filled_at, entry,
+            partial_fraction=p.partial_fraction,
+        )  # fmt: skip
 
 
 def on_partial_filled(plan: PositionPlan) -> None:
@@ -235,3 +244,24 @@ def on_candle_close(plan: PositionPlan, snap: Snapshot, p: RuleParams) -> ExitRe
     elif plan.candles_held == p.time_stop_candles and not plan.reached_min_r:
         return ExitReason.TIME_STOP
     return None
+
+
+class PullbackStrategy:
+    """H0: la estrategia original de PLAN.md (15 min + régimen 1 h) como `Strategy`."""
+
+    name = "H0_retroceso_15m"
+
+    def __init__(self, params: RuleParams):
+        self.params = params
+        self.lookback = params.lookback
+        self.cancel_after_candles = params.cancel_after_candles
+
+    def evaluate_entry(self, window: Sequence[Snapshot]) -> tuple[EntrySignal | None, str]:
+        return evaluate_entry(window, self.params)
+
+    def open_plan(self, signal: EntrySignal, entry: float, stop: float, fee_rate: float,
+                  filled_at: datetime) -> PositionPlan:  # fmt: skip
+        return PositionPlan.open(entry, stop, fee_rate, filled_at, self.params)
+
+    def on_candle_close(self, plan: PositionPlan, bar: Snapshot) -> ExitReason | None:
+        return on_candle_close(plan, bar, self.params)

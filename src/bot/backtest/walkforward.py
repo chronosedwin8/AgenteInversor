@@ -10,13 +10,14 @@ from __future__ import annotations
 import itertools
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from bot.backtest.engine import Backtester, BacktestResult, ParamPeriod
 from bot.backtest.metrics import Metrics, compute_metrics
 from bot.config import AcceptanceConfig, Settings, WalkForwardConfig
 from bot.data.vision import Month
+from bot.strategy.base import Strategy
 from bot.strategy.rules import RuleParams
 
 
@@ -40,9 +41,9 @@ class Window:
 
 def make_windows(data_start: datetime, data_end: datetime, cfg: WalkForwardConfig) -> list[Window]:
     first = Month(data_start.year, data_start.month)
-    # data_start es el cierre de la primera vela (p. ej. día 1, 00:14:59). Si la historia no
-    # empieza en la primera hora del mes, ese mes está incompleto y se empieza en el siguiente.
-    if (data_start.day, data_start.hour) != (1, 0):
+    # data_start es el cierre de la primera vela (p. ej. día 1, 00:14:59 o 03:59:59 en 4 h). Si
+    # la historia no empieza el primer día del mes, ese mes está incompleto: se empieza después.
+    if data_start - _month_start(first) >= timedelta(days=1):
         first = first.next()
     m = _add(first, cfg.warmup_months)
     out: list[Window] = []
@@ -109,18 +110,22 @@ class WalkForwardResult:
         return all(ok for ok, _ in self.acceptance.values())
 
 
+StrategyFactory = Callable[[Mapping[str, Any]], Strategy]
+
+
 def select_params(
     bt: Backtester,
-    base: RuleParams,
+    factory: StrategyFactory,
     combos: Sequence[dict[str, Any]],
     window: Window,
-    settings: Settings,
     min_trades: int,
 ) -> WindowChoice:
+    """Mejor combinación en el entrenamiento: mayor profit factor entre las que tienen al menos
+    `min_trades` operaciones (empate: mayor resultado neto). Si ninguna, valores por defecto."""
     best: tuple[float, float, dict[str, Any], Metrics] | None = None
     for combo in combos:
-        params = apply_combo(base, combo, settings)
-        r = bt.run([ParamPeriod(window.train_start, params)], window.train_start, window.train_end)
+        r = bt.run([ParamPeriod(window.train_start, factory(combo))], window.train_start,
+                   window.train_end)  # fmt: skip
         m = compute_metrics(r.trades, r.equity, r.initial_capital)
         if m.trades < min_trades:
             continue
@@ -128,7 +133,8 @@ def select_params(
         if best is None or key > best[:2]:
             best = (key[0], key[1], combo, m)
     if best is None:
-        r = bt.run([ParamPeriod(window.train_start, base)], window.train_start, window.train_end)
+        r = bt.run([ParamPeriod(window.train_start, factory({}))], window.train_start,
+                   window.train_end)  # fmt: skip
         return WindowChoice(
             window, {}, compute_metrics(r.trades, r.equity, r.initial_capital), True
         )
@@ -155,39 +161,59 @@ def evaluate_acceptance(
     }
 
 
-def run_walk_forward(
-    bt: Backtester,
-    base: RuleParams,
-    grid: Mapping[str, Sequence[Any]],
-    settings: Settings,
-    wf: WalkForwardConfig,
-    acc: AcceptanceConfig,
-    progress: Callable[[str], None] = lambda _: None,
-) -> WalkForwardResult:
-    data_start, data_end = bt.timeline[0], bt.timeline[-1]
-    windows = make_windows(data_start, data_end, wf)
+def windows_for(bt: Backtester, wf: WalkForwardConfig) -> list[Window]:
+    windows = make_windows(bt.timeline[0], bt.timeline[-1], wf)
     if not windows:
         raise ValueError("no hay datos suficientes para ninguna ventana de walk-forward")
-    combos = grid_combos(grid)
+    return windows
+
+
+def choose_per_window(
+    bt: Backtester,
+    factory: StrategyFactory,
+    combos: Sequence[dict[str, Any]],
+    wf: WalkForwardConfig,
+    progress: Callable[[str], None] = lambda _: None,
+    label: str = "",
+) -> list[WindowChoice]:
     choices: list[WindowChoice] = []
-    for w in windows:
-        ch = select_params(bt, base, combos, w, settings, wf.min_train_trades)
+    for w in windows_for(bt, wf):
+        ch = select_params(bt, factory, combos, w, wf.min_train_trades)
         progress(
-            f"ventana {w.test_start:%Y-%m}: train PF={ch.train.profit_factor:.2f} "
+            f"{label} ventana {w.test_start:%Y-%m}: train PF={ch.train.profit_factor:.2f} "
             f"n={ch.train.trades} combo={ch.combo or 'por defecto'}"
         )
         choices.append(ch)
+    return choices
 
-    schedule = [
-        ParamPeriod(c.window.test_start, apply_combo(base, c.combo, settings)) for c in choices
-    ]
-    oos_start, oos_end = windows[0].test_start, windows[-1].test_end
+
+def evaluate_schedule(
+    bt: Backtester,
+    choices: list[WindowChoice],
+    schedule: list[ParamPeriod],
+    acc: AcceptanceConfig,
+) -> WalkForwardResult:
+    """Un único recorrido continuo fuera de muestra con los parámetros de cada ventana."""
+    oos_start, oos_end = choices[0].window.test_start, choices[-1].window.test_end
     oos = bt.run(schedule, oos_start, oos_end)
     m = compute_metrics(oos.trades, oos.equity, oos.initial_capital)
-
     last_m = Month(oos_end.year, oos_end.month)
     for _ in range(acc.last_months_positive - 1):
         last_m = last_m.prev()
     cutoff = _month_start(last_m)
     last_pnl = float(sum(t.pnl for t in oos.trades if t.opened_at >= cutoff))
     return WalkForwardResult(choices, oos, m, last_pnl, evaluate_acceptance(m, last_pnl, acc))
+
+
+def run_walk_forward(
+    bt: Backtester,
+    factory: StrategyFactory,
+    combos: Sequence[dict[str, Any]],
+    wf: WalkForwardConfig,
+    acc: AcceptanceConfig,
+    progress: Callable[[str], None] = lambda _: None,
+    label: str = "",
+) -> WalkForwardResult:
+    choices = choose_per_window(bt, factory, combos, wf, progress, label)
+    schedule = [ParamPeriod(c.window.test_start, factory(c.combo)) for c in choices]
+    return evaluate_schedule(bt, choices, schedule, acc)

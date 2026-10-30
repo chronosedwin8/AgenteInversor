@@ -82,10 +82,16 @@ class HistorySync:
                 rows=n,
             )
 
-        history_start = month_start(months[0])
         end = last_closed_open_time(now, interval)
+        history_start = await self.effective_start(symbol, interval, month_start(months[0]))
         await self.fill_range(symbol, interval, history_start, end, now)
         return await self.verify(symbol, interval, history_start, end)
+
+    async def effective_start(self, symbol: str, interval: str, start: datetime) -> datetime:
+        """Inicio de la historia: `start`, o la primera vela si el par se listó después
+        (p. ej. SOLUSDT en agosto de 2020). Antes del listado no hay huecos que rellenar."""
+        first = (await self.store.bounds(symbol, interval)).first
+        return max(start, first) if first is not None else start
 
     async def fill_range(
         self, symbol: str, interval: str, start: datetime, end: datetime, now: datetime
