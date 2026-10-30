@@ -48,12 +48,18 @@ al terminar cada fase se muestra qué se hizo y cómo se cumplen sus criterios d
 - Ojo: los CSV de data.binance.vision usan microsegundos desde 2025-01-01 (antes milisegundos);
   la API REST usa milisegundos. `bot.data.klines` detecta la unidad.
 
+- La capa de IA está aplazada hasta demostrar que aporta valor medible superior a su costo.
+- No modificar los parámetros de H1 ni relajar criterios retrospectivamente (instrucción de
+  Edwin, 2026-10-30).
+
 ## Comandos
 
 ```bash
 docker compose up -d --build                  # bot (paper por defecto) + PostgreSQL
 docker compose run --rm bot python -m bot.main verify     # informe de huecos de velas
 docker compose run --rm bot python -m bot.main backtest   # walk-forward; informe en reports/
+docker compose run --rm bot python -m bot.main paper-status  # estado del paper trading
+docker compose run --rm bot python -m bot.main audit-h1  # auditoría pre-registrada de H1
 docker compose --profile ci run --rm --build ci           # mismo pipeline que CI (ruff, mypy, pytest)
 ```
 
@@ -63,9 +69,12 @@ Local (Windows, venv): `.venv/Scripts/python -m pytest tests/unit`.
 
 - [x] Fase 0 — Base del proyecto (aprobada)
 - [x] Fase 1 — Datos y adaptador de solo lectura (aprobada)
-- [x] Fase 2 — Estrategia y backtester: H0 no pasa; Fase 2b (docs/fase2b-*.md): H1 rentable pero falla DD y últimos 3 meses en confirmación. Decisión de Edwin pendiente
-- [ ] Fase 3 — Riesgo y portafolio
-- [ ] Fase 4 — Ejecución en Spot Testnet
+- [x] Fase 2 — Estrategia y backtester: H0 no pasa; Fase 2b: H1 experimental (docs/fase2b-*.md)
+- [x] Auditoría de H1 (docs/auditoria-h1-*.md): ventaja NO demostrada (falla Sharpe deflactado y
+      universo ampliado). H1 es experimental: SIN dinero real hasta nueva evaluación y aprobación.
+- [x] Fase 3 — RiskManager completo, kill switch persistente (pendiente de aprobación)
+- [x] Fase 4 — OrderManager/ExchangeTrader para Spot Testnet (falta correrlo 2 semanas: requiere
+      claves de testnet). Paper trading de H1-fijo en marcha desde 2026-10-30 (8–12 semanas).
 - [ ] Fase 5 — Capa de IA
 - [ ] Fase 6 — Monitoreo
 - [ ] Fase 7 — Paper trading completo

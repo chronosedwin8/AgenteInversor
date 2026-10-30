@@ -25,3 +25,16 @@ docker compose run --rm bot python -m bot.main exchange-info   # filtros por par
 docker compose run --rm bot python -m bot.main mode            # modo resuelto
 docker compose --profile ci run --rm --build ci                # ruff + mypy + pytest
 ```
+
+## Estado actual (2026-10-30)
+
+H1 es una estrategia **experimental**: la auditoría ([conclusiones](docs/auditoria-h1-conclusiones.md))
+no demostró una ventaja reproducible. **No se opera con dinero real.**
+
+- **Paper trading** (precios reales, órdenes simuladas, 200 USDT virtuales) corre dentro de
+  `docker compose up`. Estado: `docker compose run --rm bot python -m bot.main paper-status`.
+- **Spot Testnet** (Fase 4, órdenes reales sin dinero real): crea una clave HMAC en
+  <https://testnet.binance.vision> (inicio de sesión con GitHub), añade
+  `BINANCE_TESTNET_API_KEY` y `BINANCE_TESTNET_API_SECRET` a `.env` y reinicia el bot.
+- **Kill switch**: si se activa, solo se reinicia a mano:
+  `python -m bot.main risk-reset --account paper --confirm "REINICIO MANUAL DEL KILL SWITCH"`.
