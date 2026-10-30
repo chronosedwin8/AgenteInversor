@@ -73,14 +73,14 @@ def test_risk_manager_limits(sol: SymbolFilters) -> None:
     rm = RiskManager(RISK)
     pf = Portfolio(D(200), D("0.001"))
     intent = EntryIntent("SOLUSDT", D(100), D("98.5"))
-    d = rm.approve_entry(intent, pf, sol)
+    d = rm.approve_entry(intent, pf, sol, T)
     assert d.approved and d.qty == D("0.588")
 
     pf.reserve("SOLUSDT", D(60))
-    assert rm.approve_entry(intent, pf, sol).reason == "ya_hay_posicion_en_el_activo"
+    assert rm.approve_entry(intent, pf, sol, T).reason == "ya_hay_posicion_en_el_activo"
     pf.reserve("ETHUSDT", D(60))
     other = EntryIntent("BTCUSDT", D(100), D("98.5"))
-    assert rm.approve_entry(other, pf, sol).reason == "maximo_de_posiciones"
+    assert rm.approve_entry(other, pf, sol, T).reason == "maximo_de_posiciones"
 
 
 # ------------------------------------------------------------------ Portfolio

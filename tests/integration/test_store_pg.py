@@ -25,7 +25,9 @@ T0 = datetime(2026, 10, 1, tzinfo=UTC)
 async def test_migrations_are_idempotent(pg: Conn) -> None:
     assert await migrate(pg, ROOT / "migrations") == []
     cur = await pg.execute("SELECT version FROM schema_migrations")
-    assert [r[0] for r in await cur.fetchall()] == ["0001_candles.sql"]
+    expected = sorted(f.name for f in (ROOT / "migrations").glob("[0-9]*.sql"))
+    assert sorted(r[0] for r in await cur.fetchall()) == expected
+    assert expected[0] == "0001_candles.sql" and len(expected) >= 3
 
 
 async def test_upsert_roundtrip_and_idempotency(pg: Conn) -> None:

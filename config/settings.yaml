@@ -28,6 +28,12 @@ data:
   rest_timeout_ms: 10000
   exchange_info_refresh_minutes: 60
 
+execution:
+  # Fase 4: órdenes reales en Spot TESTNET (sin dinero real). Solo se activa si existen
+  # BINANCE_TESTNET_API_KEY y BINANCE_TESTNET_API_SECRET en .env.
+  testnet_enabled: true
+  testnet_url: https://testnet.binance.vision
+
 runtime:
   heartbeat_seconds: 60
   log_level: INFO

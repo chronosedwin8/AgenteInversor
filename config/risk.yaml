@@ -6,6 +6,7 @@ initial_capital_usdt: 200
 
 risk_per_trade_pct: 0.5            # ≈ 1,00 USD con 200
 max_position_pct: 40               # ≈ 80 USD
+max_total_exposure_pct: 80         # suma de posiciones abiertas + órdenes pendientes
 min_position_notional_multiple: 2  # tamaño mínimo = 2 × NOTIONAL del par + margen
 min_position_margin_pct: 10        # margen sobre ese mínimo
 max_open_positions: 2
@@ -20,8 +21,9 @@ reduced_risk_per_trade_pct: 0.25
 
 # Kill switch: −10% del capital inicial → capital ≤ 180 USD.
 # Pregunta abierta en PLAN.md: ¿desde el capital inicial o desde el máximo? Se usa el inicial
-# hasta que Edwin decida.
+# hasta que Edwin decida (kill_switch_basis: initial | peak).
 kill_switch_pct: 10
+kill_switch_basis: initial
 
 leverage: none
 fee_rate: 0.001                    # 0,1% por lado (0,00075 con BNB)

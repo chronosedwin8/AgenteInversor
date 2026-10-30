@@ -88,6 +88,11 @@ class DataConfig(_Frozen):
     exchange_info_refresh_minutes: int = 60
 
 
+class ExecutionConfig(_Frozen):
+    testnet_enabled: bool = False
+    testnet_url: str = "https://testnet.binance.vision"
+
+
 class RuntimeConfig(_Frozen):
     heartbeat_seconds: int = 60
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
@@ -97,6 +102,7 @@ class Settings(_Frozen):
     timezone: str
     universe: Universe
     data: DataConfig
+    execution: ExecutionConfig = ExecutionConfig()
     runtime: RuntimeConfig
 
     @field_validator("timezone")
@@ -200,6 +206,7 @@ class RiskConfig(_Frozen):
     initial_capital_usdt: Decimal = Field(gt=0)
     risk_per_trade_pct: Decimal = Field(gt=0, le=2)
     max_position_pct: Decimal = Field(gt=0, le=100)
+    max_total_exposure_pct: Decimal = Field(gt=0, le=100)
     min_position_notional_multiple: Decimal = Field(ge=1)
     min_position_margin_pct: Decimal = Field(ge=0)
     max_open_positions: int = Field(ge=1)
@@ -211,6 +218,7 @@ class RiskConfig(_Frozen):
     drawdown_alert_pct: Decimal = Field(gt=0)
     reduced_risk_per_trade_pct: Decimal = Field(gt=0)
     kill_switch_pct: Decimal = Field(gt=0, lt=100)
+    kill_switch_basis: Literal["initial", "peak"] = "initial"
     leverage: Literal["none"]
     fee_rate: Decimal = Field(ge=0, lt=Decimal("0.01"))
 
@@ -220,6 +228,8 @@ class RiskConfig(_Frozen):
             raise ValueError("reduced_risk_per_trade_pct no puede superar risk_per_trade_pct")
         if self.drawdown_alert_pct >= self.kill_switch_pct:
             raise ValueError("drawdown_alert_pct debe ser menor que kill_switch_pct")
+        if self.max_position_pct > self.max_total_exposure_pct:
+            raise ValueError("max_position_pct no puede superar max_total_exposure_pct")
         if self.max_open_positions_bstocks > self.max_open_positions:
             raise ValueError("max_open_positions_bstocks no puede superar max_open_positions")
         return self

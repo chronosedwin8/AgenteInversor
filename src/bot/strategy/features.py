@@ -14,8 +14,8 @@ from bot.data.klines import Candle
 from bot.strategy.indicators import ATR, EMA, RSI
 
 SIGNAL_EMAS = (5,)
-REGIME_EMAS = (50, 100)
-DONCHIAN = (20, 40)
+REGIME_EMAS = (50, 75, 100, 150, 200)  # incluye la rejilla de sensibilidad de la auditoría
+DONCHIAN = (10, 15, 20, 30, 40, 60)
 
 
 class PriorHigh:

@@ -71,6 +71,17 @@ class Portfolio:
     def exposure_count(self) -> int:
         return len(self.holdings.keys() | self.reserved.keys())
 
+    def exposure_symbols(self) -> set[str]:
+        return set(self.holdings) | set(self.reserved)
+
+    def exposure_value(self) -> Decimal:
+        """Valor de mercado de las posiciones + caja reservada para órdenes pendientes."""
+        held = sum(
+            (h.qty * self.marks.get(h.symbol, h.entry_price) for h in self.holdings.values()),
+            Decimal(0),
+        )
+        return held + sum(self.reserved.values(), Decimal(0))
+
     # ------------------------------------------------------------ operaciones
 
     def mark(self, symbol: str, price: Decimal) -> None:

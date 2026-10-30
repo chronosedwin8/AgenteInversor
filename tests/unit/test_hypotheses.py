@@ -25,13 +25,18 @@ T0 = datetime(2026, 3, 2, 0, 0, tzinfo=UTC)
 def bar(i: int, o: float, h: float, low: float, c: float, **kw: Any) -> Bar:
     close_time = T0 + (i + 1) * H4 - timedelta(milliseconds=1)
     values: dict[str, Any] = {
-        "volume": 10.0, "atr": 2.0, "rsi3": 50.0, "ema": {5: c},
-        "donchian": {20: 100.0, 40: 105.0}, "regime_close": 110.0,
+        "volume": 10.0,
+        "atr": 2.0,
+        "rsi3": 50.0,
+        "ema": {5: c},
+        "donchian": {20: 100.0, 40: 105.0},
+        "regime_close": 110.0,
         "regime_ema": {50: 100.0, 100: 95.0},
-    }  # fmt: skip
+    }
     values.update(kw)
-    return Bar("SOLUSDT", close_time - H4 + timedelta(milliseconds=1), close_time,
-               o, h, low, c, **values)  # fmt: skip
+    return Bar(
+        "SOLUSDT", close_time - H4 + timedelta(milliseconds=1), close_time, o, h, low, c, **values
+    )
 
 
 # ------------------------------------------------------------------ features
@@ -48,11 +53,23 @@ def test_build_bars_regime_uses_last_closed_daily_bar() -> None:
     daily: list[Candle] = []
     for k in range(0, 288, 24):
         day = signal[k : k + 24]
-        daily.append(Candle(
-            "BTCUSDT", "1d", day[0].open_time, day[-1].close_time, day[0].open,
-            max(c.high for c in day), min(c.low for c in day), day[-1].close,
-            sum((c.volume for c in day), D(0)), D(0), 0, D(0), D(0),
-        ))  # fmt: skip
+        daily.append(
+            Candle(
+                "BTCUSDT",
+                "1d",
+                day[0].open_time,
+                day[-1].close_time,
+                day[0].open,
+                max(c.high for c in day),
+                min(c.low for c in day),
+                day[-1].close,
+                sum((c.volume for c in day), D(0)),
+                D(0),
+                0,
+                D(0),
+                D(0),
+            )
+        )
     bars = build_bars("BTCUSDT", signal, daily)
     for b in bars:
         closed = [d for d in daily if d.close_time <= b.close_time]
@@ -134,8 +151,13 @@ def test_h2_vetoes_and_time_stop() -> None:
     assert s.evaluate_entry([b, b])[1] == "sin_sobreventa"
     b = replace(b, rsi3=5.0, regime_close=90.0)
     assert s.evaluate_entry([b, b])[1] == "regimen_no_alcista"
-    plan = s.open_plan(replace(H2DipBuy().evaluate_entry([b, replace(b, regime_close=110.0)])[0]),  # type: ignore[type-var]
-                       96.0, 91.0, 0.001, T0)  # fmt: skip
+    plan = s.open_plan(
+        replace(H2DipBuy().evaluate_entry([b, replace(b, regime_close=110.0)])[0]),  # type: ignore[type-var]
+        96.0,
+        91.0,
+        0.001,
+        T0,
+    )
     for i in range(5):
         assert s.on_candle_close(plan, bar(2 + i, 96, 96.5, 95, 95.5, ema={5: 97.0})) is None
     assert (
@@ -171,15 +193,20 @@ def filters(symbol_info: dict[str, dict[str, Any]]) -> SymbolFilters:
 
 
 def _run(bars: list[Bar], filters: SymbolFilters) -> Any:
-    bt = Backtester({"SOLUSDT": SymbolData("SOLUSDT", bars, filters)}, CFG.risk, D("0.001"),
-                    D("0.0005"))  # fmt: skip
+    bt = Backtester(
+        {"SOLUSDT": SymbolData("SOLUSDT", bars, filters)}, CFG.risk, D("0.001"), D("0.0005")
+    )
     start = bars[0].close_time
     return bt.run([ParamPeriod(start, H1Breakout())], start, bars[-1].close_time + H4)
 
 
 def test_market_entry_fills_at_next_open_with_slippage(filters: SymbolFilters) -> None:
-    bars = [bar(0, 99, 100, 98, 99), bar(1, 99, 102, 99, 101), bar(2, 101.5, 103.5, 101, 102),
-            bar(3, 102, 102.5, 96, 96.5)]  # fmt: skip
+    bars = [
+        bar(0, 99, 100, 98, 99),
+        bar(1, 99, 102, 99, 101),
+        bar(2, 101.5, 103.5, 101, 102),
+        bar(3, 102, 102.5, 96, 96.5),
+    ]
     (t,) = _run(bars, filters).trades
     assert t.entry_price == D("101.5") * D("1.0005")  # apertura de la vela siguiente
     assert t.opened_at == bars[2].close_time
@@ -193,3 +220,30 @@ def test_market_entry_gapping_below_stop_exits_immediately(filters: SymbolFilter
     (t,) = _run(bars, filters).trades
     assert t.exits == (ExitReason.STOP,) and t.pnl < 0
     assert t.avg_exit_price == D(95) * D("0.9995")
+
+
+def test_features_cover_every_parameter_used_by_audit_and_grids() -> None:
+    """Regresión: la sensibilidad de la auditoría usaba periodos que no se calculaban."""
+    from bot.strategy.features import DONCHIAN, REGIME_EMAS, FeatureBuilder
+
+    assert {50, 75, 100, 150, 200} <= set(REGIME_EMAS)
+    assert {10, 15, 20, 30, 40, 60} <= set(DONCHIAN)
+    fb = FeatureBuilder("BTCUSDT")
+    day0 = datetime(2020, 1, 1, tzinfo=UTC)
+    for i, c in enumerate(CANDLES[:250]):  # 250 diarias consecutivas
+        o = day0 + timedelta(days=i)
+        fb.on_regime_candle(
+            replace(
+                c, interval="1d", open_time=o, close_time=o + timedelta(days=1, milliseconds=-1)
+            )
+        )
+    start = day0 + timedelta(days=250)
+    last = None
+    for i, c in enumerate(CANDLES[:70]):  # 70 velas de señal
+        o = start + i * H4
+        last = fb.on_signal_candle(
+            replace(c, interval="4h", open_time=o, close_time=o + H4 - timedelta(milliseconds=1))
+        )
+    assert last is not None
+    assert all(last.regime_ema[n] is not None for n in REGIME_EMAS)
+    assert all(last.donchian[n] is not None for n in DONCHIAN)

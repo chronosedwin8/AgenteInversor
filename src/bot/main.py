@@ -9,6 +9,9 @@ Comandos:
   mode           muestra el modo resuelto (sin secretos)
   backtest       walk-forward sobre la historia guardada; informe en reports/
   research       Fase 2b: hipótesis pre-registradas (desarrollo + confirmación)
+  audit-h1       auditoría pre-registrada de H1 (docs/auditoria-h1-plan.md)
+  paper-status   estado del paper trading (capital, posiciones, operaciones, kill switch)
+  risk-reset     reinicio MANUAL del kill switch de una cuenta (pide frase de confirmación)
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import json
 import signal
 import sys
 import time
@@ -37,8 +41,13 @@ from bot.data.vision import VisionClient
 from bot.db import DEFAULT_MIGRATIONS_DIR, connect, migrate
 from bot.exchange.binance_spot import BinanceSpot
 from bot.exchange.info import ExchangeInfoCache
+from bot.execution.paper import PaperTrader
+from bot.execution.session import TradingSession
+from bot.execution.state import dump_session, load_session
+from bot.execution.store import SessionStore
 from bot.log import configure_logging, get_logger
 from bot.modes import TradingMode, resolve_mode
+from bot.strategy.hypotheses import H1Breakout, H1Params
 
 log = get_logger("bot")
 
@@ -196,6 +205,109 @@ async def cmd_research(cfg: AppConfig, env: EnvSettings, confirm: set[str] | Non
     return 0 if out.winner else 1
 
 
+async def cmd_audit_h1(cfg: AppConfig, env: EnvSettings, quick: bool) -> int:
+    from bot.audit.h1 import download_extended, load_extended_bars, run_audit
+    from bot.audit.report import render
+    from bot.data.vision import Month
+
+    hyp = load_hypotheses(env.config_dir / "hypotheses.yaml")
+    data = cfg.settings.data
+    adapter = _adapter(cfg)
+    spreads: dict[str, float] = {}
+    for sym in cfg.settings.universe.active_symbols:
+        samples = []
+        for _ in range(15):
+            samples.append(float((await adapter.get_book_ticker(sym)).spread_pct) / 100)
+            await asyncio.sleep(1)
+        spreads[sym] = sorted(samples)[len(samples) // 2]
+    conn = await connect(_dsn(env))
+    async with conn, aiohttp.ClientSession() as session:
+        await migrate(conn, DEFAULT_MIGRATIONS_DIR)
+        store = CandleStore(conn)
+        vision = VisionClient(data.vision_base_url, data.cache_dir, session)
+        now = _now()
+        await download_extended(store, vision, Month(now.year, now.month).prev(),
+                                lambda msg: log.info("audit", msg=msg))  # fmt: skip
+        bars = await load_bars(store, cfg.settings.universe.active_symbols, hyp.timeframes)
+        ext = await load_extended_bars(store)
+    out_dir = Path("docs") / "auditoria"
+    result = await asyncio.to_thread(
+        run_audit, cfg, hyp, bars, ext, spreads, out_dir,
+        lambda msg: log.info("audit", msg=msg),
+        200 if quick else 5000, 20 if quick else 1000,
+    )  # fmt: skip
+    path = Path("docs") / ("auditoria-h1-resultados-rapido.md" if quick
+                           else "auditoria-h1-resultados.md")  # fmt: skip
+    path.write_text(render(result), encoding="utf-8")
+    for k, (ok, v) in result.decision.items():
+        print(f"  {'OK ' if ok else 'NO '} {k}: {v}")
+    verdict = "ventaja demostrada" if result.edge_demonstrated else "ventaja NO demostrada"
+    print(f"veredicto: {verdict}; informe: {path}")
+    return 0
+
+
+async def cmd_paper_status(env: EnvSettings, account: str) -> int:
+    conn = await connect(_dsn(env))
+    async with conn:
+        await migrate(conn, DEFAULT_MIGRATIONS_DIR)
+        st = SessionStore(conn)
+        saved = await st.load(account)
+        if saved is None:
+            print(f"cuenta {account!r}: sin estado (el paper trading no ha arrancado)")
+            return 1
+        last, raw = saved
+        d = json.loads(raw)
+        risk = json.loads(d["risk"])
+        trades = await st.trades(account)
+        pnl = sum(float(t[6]) for t in trades)
+        print(f"cuenta {account}: última vela procesada {last}")
+        print(
+            f"  caja {d['cash']['$dec']} USDT; posiciones abiertas: {sorted(d['open'])}; "
+            f"órdenes pendientes: {sorted(d['pending'])}"
+        )
+        print(f"  operaciones cerradas: {len(trades)}; resultado {pnl:+.4f} USDT")
+        ks = "ACTIVO" if risk.get("kill_switch") else "inactivo"
+        print(f"  kill switch: {ks}; pérdidas consecutivas: {risk.get('consecutive_losses')}")
+        for t in trades[-10:]:
+            print(
+                f"   {t[0]} {t[1]:%Y-%m-%d %H:%M} -> {t[2]:%Y-%m-%d %H:%M} "
+                f"pnl {float(t[6]):+.4f} R {float(t[7]):+.2f} {t[8]}"
+            )
+        for at, kind, detail in await st.recent_events(account, 10):
+            print(f"   [{at:%Y-%m-%d %H:%M}] {kind} {detail}")
+    return 0
+
+
+async def cmd_risk_reset(env: EnvSettings, account: str, confirmation: str) -> int:
+    """Reinicio manual del kill switch (PLAN.md: "reinicio solo manual")."""
+    cfg = load_config(env.config_dir)
+    hyp = load_hypotheses(env.config_dir / "hypotheses.yaml")
+    conn = await connect(_dsn(env))
+    async with conn:
+        st = SessionStore(conn)
+        saved = await st.load(account)
+        if saved is None:
+            print(f"cuenta {account!r} sin estado")
+            return 1
+        last, raw = saved
+        strategy = H1Breakout(H1Params(**hyp.H1.defaults))  # type: ignore[arg-type]
+        session = TradingSession(
+            cfg.risk,
+            {},
+            cfg.strategy.costs.fee_rate,
+            cfg.strategy.costs.slippage_rate,
+            lambda _t: strategy,
+        )
+        load_session(session, raw, strategy)
+        ev = session.risk.reset_kill_switch(confirmation, _now(), session.pf.equity())
+        detail = {"detail": ev.detail, "equity": str(ev.equity)}
+        await st.save(
+            account, last or _now(), dump_session(session), [], [(ev.at, str(ev.kind), detail)]
+        )
+    print(f"kill switch de {account!r} reiniciado manualmente")
+    return 0
+
+
 def cmd_mode(env: EnvSettings) -> int:
     res = resolve_mode(env)
     print(f"solicitado={res.requested!r} resuelto={res.mode.value}")
@@ -208,16 +320,25 @@ def cmd_mode(env: EnvSettings) -> int:
 
 
 async def _heartbeat(
-    stop: asyncio.Event, every_s: int, mode: TradingMode, live: LiveCandles
+    stop: asyncio.Event, every_s: int, mode: TradingMode, live: LiveCandles, paper: Any = None
 ) -> None:
     started = time.monotonic()
     while not stop.is_set():
+        extra: dict[str, Any] = {}
+        if paper is not None:
+            s = paper.session
+            extra = {
+                "paper_equity": str(s.pf.equity()),
+                "paper_open": sorted(s.open),
+                "paper_kill_switch": s.risk.kill_switch_active,
+            }
         log.info(
             "heartbeat",
             mode=mode.value,
             uptime_s=int(time.monotonic() - started),
             candles_received=live.received,
             last={f"{s}:{i}": t.isoformat() for (s, i), t in live.last.items()},
+            **extra,
         )
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(stop.wait(), timeout=every_s)
@@ -261,7 +382,8 @@ async def cmd_run(cfg: AppConfig, env: EnvSettings) -> int:
     dsn = _dsn(env)
     meta_conn = await connect(dsn)
     data_conn = await connect(dsn)
-    async with meta_conn, data_conn, aiohttp.ClientSession() as session:
+    paper_conn = await connect(dsn)
+    async with meta_conn, data_conn, paper_conn, aiohttp.ClientSession() as session:
         await migrate(meta_conn, DEFAULT_MIGRATIONS_DIR)
 
         info = ExchangeInfoCache(
@@ -301,9 +423,45 @@ async def cmd_run(cfg: AppConfig, env: EnvSettings) -> int:
                 )
 
         live = LiveCandles(store, sync, symbols, data.intervals, data.ws_stream_url)
-        tasks: list[Coroutine[Any, Any, None]] = [
+        # Paper trading de H1-fijo (estrategia experimental, sin capital real, sin IA).
+        hyp = load_hypotheses(env.config_dir / "hypotheses.yaml")
+        paper_store = CandleStore(paper_conn)
+        paper = PaperTrader(
+            cfg,
+            H1Params(**hyp.H1.defaults),  # type: ignore[arg-type]
+            paper_store,
+            SessionStore(paper_conn),
+            HistorySync(paper_store, adapter, None),
+            adapter,
+            {s: await info.get(s) for s in symbols},
+        )
+        tasks: list[Coroutine[Any, Any, None]] = []
+        ex_cfg = cfg.settings.execution
+        key, secret = env.binance_testnet_api_key, env.binance_testnet_api_secret
+        if ex_cfg.testnet_enabled and key and secret:
+            from bot.exchange.trading import BinanceSpotTrading
+            from bot.execution.live import ExchangeTrader
+
+            testnet_conn = await connect(dsn)
+            client = BinanceSpotTrading(ex_cfg.testnet_url, key.get_secret_value(),
+                                        secret.get_secret_value(), env)  # fmt: skip
+            testnet = ExchangeTrader(
+                cfg,
+                H1Params(**hyp.H1.defaults),  # type: ignore[arg-type]
+                CandleStore(testnet_conn),
+                SessionStore(testnet_conn),
+                HistorySync(CandleStore(testnet_conn), adapter, None),
+                client,
+                {s: await info.get(s) for s in symbols},
+            )
+            tasks.append(testnet.run(stop))
+            log.info("testnet_enabled", url=ex_cfg.testnet_url)
+        else:
+            log.info("testnet_disabled", reason="faltan claves de testnet o está desactivado")
+        tasks += [
             live.run(stop),
-            _heartbeat(stop, cfg.settings.runtime.heartbeat_seconds, res.mode, live),
+            paper.run(stop),
+            _heartbeat(stop, cfg.settings.runtime.heartbeat_seconds, res.mode, live, paper),
             _refresh_exchange_info(stop, info, data.exchange_info_refresh_minutes * 60),
         ]
         await asyncio.gather(*tasks)
@@ -325,6 +483,13 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("exchange-info")
     sub.add_parser("mode")
     sub.add_parser("backtest")
+    ps = sub.add_parser("paper-status")
+    ps.add_argument("--account", default="paper")
+    rr = sub.add_parser("risk-reset")
+    rr.add_argument("--account", default="paper")
+    rr.add_argument("--confirm", required=True, help="frase exacta de confirmación")
+    a = sub.add_parser("audit-h1")
+    a.add_argument("--quick", action="store_true", help="pocas repeticiones (prueba de humo)")
     r = sub.add_parser("research")
     r.add_argument("--confirm", nargs="*", default=None,
                    help="hipótesis a confirmar por enmienda registrada (p. ej. H1)")  # fmt: skip
@@ -354,6 +519,12 @@ def main(argv: list[str] | None = None) -> int:
         return _run_async(cmd_verify(cfg, env))
     if command == "backtest":
         return _run_async(cmd_backtest(cfg, env))
+    if command == "paper-status":
+        return _run_async(cmd_paper_status(env, args.account))
+    if command == "risk-reset":
+        return _run_async(cmd_risk_reset(env, args.account, args.confirm))
+    if command == "audit-h1":
+        return _run_async(cmd_audit_h1(cfg, env, args.quick))
     if command == "research":
         confirm = set(args.confirm) if args.confirm else None
         return _run_async(cmd_research(cfg, env, confirm))

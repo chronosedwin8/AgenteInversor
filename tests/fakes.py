@@ -57,6 +57,9 @@ class MemoryStore:
     ) -> list[datetime]:
         return [t for t in self._times(symbol, interval) if a <= t <= b]
 
+    async def load_candles(self, symbol: str, interval: str) -> list[Candle]:
+        return [self.rows[(symbol, interval, t)][0] for t in self._times(symbol, interval)]
+
     async def save_symbol_snapshots(self, filters: dict[str, SymbolFilters]) -> None:
         self.snapshots.append(filters)
 
@@ -122,3 +125,19 @@ class FakeVision:
             return None
         step = interval_delta(interval)
         return make_series(symbol, interval, month_start(month), month_start(month.next()) - step)
+
+
+class MemorySessionStore:
+    def __init__(self) -> None:
+        self.state: dict[str, tuple[Any, str]] = {}
+        self.trades_rows: list[Any] = []
+        self.events: list[Any] = []
+
+    async def load(self, account: str) -> tuple[Any, str] | None:
+        return self.state.get(account)
+
+    async def save(self, account: str, last_bar_time: Any, state_json: str, trades: Any,
+                   events: Any) -> None:  # fmt: skip
+        self.state[account] = (last_bar_time, state_json)
+        self.trades_rows.extend(trades)
+        self.events.extend(events)
