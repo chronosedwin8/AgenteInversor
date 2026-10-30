@@ -172,7 +172,7 @@ async def cmd_backtest(cfg: AppConfig, env: EnvSettings) -> int:
     return 0 if wf.passed else 1
 
 
-async def cmd_research(cfg: AppConfig, env: EnvSettings) -> int:
+async def cmd_research(cfg: AppConfig, env: EnvSettings, confirm: set[str] | None = None) -> int:
     hyp = load_hypotheses(env.config_dir / "hypotheses.yaml")
     conn = await connect(_dsn(env))
     async with conn:
@@ -182,7 +182,7 @@ async def cmd_research(cfg: AppConfig, env: EnvSettings) -> int:
     log.info("research_data_loaded", bars={s: len(b.bars) for s, b in bars.items()})
     out = await asyncio.to_thread(
         run_research, cfg, hyp, bars, Path("reports"), Path("reports") / "fase2b-resultados.md",
-        lambda msg: log.info("research", msg=msg),
+        lambda msg: log.info("research", msg=msg), confirm,
     )  # fmt: skip
     for stage in (out.development, out.confirmation):
         if stage is None:
@@ -325,7 +325,9 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("exchange-info")
     sub.add_parser("mode")
     sub.add_parser("backtest")
-    sub.add_parser("research")
+    r = sub.add_parser("research")
+    r.add_argument("--confirm", nargs="*", default=None,
+                   help="hipótesis a confirmar por enmienda registrada (p. ej. H1)")  # fmt: skip
     return p
 
 
@@ -353,7 +355,8 @@ def main(argv: list[str] | None = None) -> int:
     if command == "backtest":
         return _run_async(cmd_backtest(cfg, env))
     if command == "research":
-        return _run_async(cmd_research(cfg, env))
+        confirm = set(args.confirm) if args.confirm else None
+        return _run_async(cmd_research(cfg, env, confirm))
     return _run_async(cmd_run(cfg, env))
 
 

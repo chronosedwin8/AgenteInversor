@@ -144,9 +144,10 @@ def run_stage(
     want = only if only is not None else {"H1", "H2", "H3"}
 
     # Selección por ventana (solo entrenamiento) de H1 y H2; H3 reutiliza ambas elecciones.
-    ch1 = choose_per_window(bt, f1, c1, wf, progress, f"[{name}] H1")
-    ch2 = choose_per_window(bt, f2, c2, wf, progress, f"[{name}] H2")
-    out.choices = {"H1": ch1, "H2": ch2}
+    # Solo se entrena lo necesario: en confirmación no se toca el holdout con otras hipótesis.
+    ch1 = choose_per_window(bt, f1, c1, wf, progress, f"[{name}] H1") if want & {"H1", "H3"} else []
+    ch2 = choose_per_window(bt, f2, c2, wf, progress, f"[{name}] H2") if want & {"H2", "H3"} else []
+    out.choices = {k: v for k, v in {"H1": ch1, "H2": ch2}.items() if v}
     if "H1" in want:
         sched = [ParamPeriod(c.window.test_start, f1(c.combo)) for c in ch1]
         out.results["H1"] = evaluate_schedule(bt, ch1, sched, acc)
@@ -172,16 +173,23 @@ class ResearchOutput:
 
 def run_research(
     app: AppConfig, hyp: HypothesesConfig, bars: dict[str, SymbolBars], out_dir: Path,
-    docs_path: Path, progress: Progress = lambda _: None,
+    docs_path: Path, progress: Progress = lambda _: None, confirm: set[str] | None = None,
 ) -> ResearchOutput:  # fmt: skip
+    """`confirm`: hipótesis que van a confirmación aunque no pasen desarrollo (solo mediante
+    una enmienda registrada en docs/fase2b-protocolo.md antes de ejecutarla)."""
     dev = run_stage("desarrollo", slice_stage(bars, hyp.stages["desarrollo"]), app, hyp, None,
                     progress)  # fmt: skip
     passed_dev = {k for k, r in dev.results.items() if r.passed}
+    if confirm:
+        passed_dev |= confirm
     conf: StageResult | None = None
     if passed_dev:
         conf = run_stage("confirmacion", slice_stage(bars, hyp.stages["confirmacion"]), app, hyp,
                          passed_dev, progress)  # fmt: skip
-    finalists = [k for k in sorted(passed_dev) if conf is not None and conf.results[k].passed]
+    finalists = [
+        k for k in sorted(passed_dev)
+        if conf is not None and conf.results[k].passed and (dev.results[k].passed or confirm)
+    ]  # fmt: skip
     winner = (
         min(finalists, key=lambda k: conf.results[k].oos_metrics.max_drawdown_pct)
         if conf is not None and finalists
@@ -261,6 +269,7 @@ def render_report(dev: StageResult, conf: StageResult | None, winner: str | None
                   "No se ejecutó: ninguna hipótesis pasó desarrollo (el holdout queda intacto).",
                   ""]  # fmt: skip
     else:
-        lines += [f"Pasaron desarrollo: {', '.join(sorted(passed_dev))}.", "", *_stage_md(conf)]
+        lines += [f"A confirmación: {', '.join(sorted(passed_dev))} (ver enmiendas del "
+                  "protocolo).", "", *_stage_md(conf)]  # fmt: skip
     lines += [f"Archivos: `{run_dir.as_posix()}`", ""]
     return "\n".join(lines)

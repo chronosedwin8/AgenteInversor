@@ -91,3 +91,21 @@ así el paso a dinero real exige el paper trading de la Fase 7.
 - Reversión a corto plazo en cripto a 15 min (2026). https://arxiv.org/pdf/2608.21888
 - Quantpedia, *Trend-following and Mean-reversion in Bitcoin*.
   https://quantpedia.com/trend-following-and-mean-reversion-in-bitcoin/
+
+## Enmienda 1 (2026-10-30, tras la etapa de desarrollo y ANTES de mirar el holdout)
+
+Resultado de desarrollo (docs/fase2b-resultados-desarrollo.md): H2 y H3 no pasan. H1 cumple
+PF 1,57, drawdown 5,6% y últimos 3 meses +14,14 USDT, pero tiene **98 operaciones** (mínimo 100).
+
+El mínimo de operaciones existe para que haya evidencia suficiente. En lugar de bajar el umbral
+o descartar H1 por 2 operaciones, se decide:
+
+- Evaluar **solo H1** en el holdout (ene-2020 → sep-2023), **una única vez**, con exactamente las
+  mismas reglas, rejilla y procedimiento de walk-forward. H2 y H3 quedan descartadas.
+- En el holdout H1 debe cumplir **por sí sola los cuatro criterios** (≥ 100 operaciones,
+  PF ≥ 1,3, drawdown ≤ 8%, últimos 3 meses > 0). No se relaja nada.
+- Si no los cumple, la recomendación es detener el proyecto. Si los cumple, H1 pasa a la
+  Fase 3 con la advertencia de que en desarrollo 5 operaciones aportaron +38,5R de +29,3R
+  totales (perfil típico de seguimiento de tendencia: pocas ganancias grandes).
+
+Esta enmienda se registra en el repositorio antes de ejecutar la confirmación.
