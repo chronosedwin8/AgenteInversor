@@ -84,6 +84,7 @@ async def test_paper_matches_backtest_and_survives_restart(filters: SymbolFilter
         clock.t = T0 + upto_day * DAY + timedelta(seconds=1)
         await _load(store, four, daily, clock.t)
         if restart:
+            sessions.locks.clear()  # el proceso anterior murió: se libera el bloqueo
             paper = _paper(store, sessions, filters, clock)
             await paper.start()
         await paper.step()
@@ -113,6 +114,7 @@ async def test_kill_switch_state_persists_in_paper(filters: SymbolFilters) -> No
     paper.session.risk.update(clock.t, D(179))  # capital simulado bajo el umbral
     assert paper.session.risk.kill_switch_active
     await paper._persist()
+    sessions.locks.clear()
     restarted = _paper(store, sessions, filters, clock)
     await restarted.start()
     assert restarted.session.risk.kill_switch_active

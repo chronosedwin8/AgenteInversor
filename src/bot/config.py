@@ -92,6 +92,13 @@ class ExecutionConfig(_Frozen):
     testnet_enabled: bool = False
     testnet_url: str = "https://testnet.binance.vision"
 
+    @field_validator("testnet_url")
+    @classmethod
+    def _must_be_testnet(cls, v: str) -> str:
+        if "testnet" not in v:
+            raise ValueError("execution.testnet_url debe ser un endpoint de TESTNET")
+        return v
+
 
 class RuntimeConfig(_Frozen):
     heartbeat_seconds: int = 60

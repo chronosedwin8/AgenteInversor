@@ -80,6 +80,8 @@ class PaperTrader:
     # ------------------------------------------------------------ arranque
 
     async def start(self) -> None:
+        if not await self.sessions.acquire_lock(self.account):
+            raise RuntimeError(f"otra instancia ya opera la cuenta {self.account!r}")
         saved = await self.sessions.load(self.account)
         if saved is not None:
             self.last_bar_time, raw = saved
@@ -133,6 +135,12 @@ class PaperTrader:
                 window = bars[sym][max(0, i - WINDOW) : i + 1]
                 changed |= self.session.on_bar(sym, window, t, entries_allowed=True)
             self.session.end_timestep(t, changed)
+            # Evidencia prospectiva: cuándo se procesó cada vela respecto a su cierre.
+            lag = (self.clock() - t).total_seconds()
+            self._events.append((t, "bar_processed", {
+                "processed_at": self.clock().isoformat(), "lag_s": f"{lag:.0f}",
+                "catch_up": str(lag > interval_delta(SIGNAL_TF).total_seconds()),
+            }))  # fmt: skip
             self.last_bar_time = t
             if t == newest and self.live_quotes:
                 await self._attach_quotes(t)

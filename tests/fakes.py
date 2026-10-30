@@ -129,9 +129,16 @@ class FakeVision:
 
 class MemorySessionStore:
     def __init__(self) -> None:
+        self.locks: set[str] = set()
         self.state: dict[str, tuple[Any, str]] = {}
         self.trades_rows: list[Any] = []
         self.events: list[Any] = []
+
+    async def acquire_lock(self, account: str) -> bool:
+        if account in self.locks:
+            return False
+        self.locks.add(account)
+        return True
 
     async def load(self, account: str) -> tuple[Any, str] | None:
         return self.state.get(account)

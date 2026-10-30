@@ -24,6 +24,7 @@ USER root
 RUN pip install ".[dev]"
 COPY tests ./tests
 COPY scripts ./scripts
+COPY .gitignore .env.example ./
 RUN chown -R bot:bot /app
 USER bot
 CMD ["sh", "scripts/ci.sh"]

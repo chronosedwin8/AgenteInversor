@@ -10,7 +10,9 @@ Comandos:
   backtest       walk-forward sobre la historia guardada; informe en reports/
   research       Fase 2b: hipótesis pre-registradas (desarrollo + confirmación)
   audit-h1       auditoría pre-registrada de H1 (docs/auditoria-h1-plan.md)
+  analyze-models comparación A/B/C/D y análisis por régimen (docs/fase-testnet-plan.md)
   paper-status   estado del paper trading (capital, posiciones, operaciones, kill switch)
+  testnet-check  verifica las claves de Spot Testnet (sin mostrarlas) y el reloj
   risk-reset     reinicio MANUAL del kill switch de una cuenta (pide frase de confirmación)
 """
 
@@ -45,7 +47,7 @@ from bot.execution.paper import PaperTrader
 from bot.execution.session import TradingSession
 from bot.execution.state import dump_session, load_session
 from bot.execution.store import SessionStore
-from bot.log import configure_logging, get_logger
+from bot.log import configure_logging, get_logger, register_secrets
 from bot.modes import TradingMode, resolve_mode
 from bot.strategy.hypotheses import H1Breakout, H1Params
 
@@ -308,6 +310,61 @@ async def cmd_risk_reset(env: EnvSettings, account: str, confirmation: str) -> i
     return 0
 
 
+async def cmd_analyze_models(cfg: AppConfig, env: EnvSettings, n_sims: int) -> int:
+    from bot.audit.h1 import _data, run_h1
+    from bot.audit.models import compare_models, regime_analysis
+    from bot.audit.report_models import render
+
+    hyp = load_hypotheses(env.config_dir / "hypotheses.yaml")
+    symbols = cfg.settings.universe.active_symbols
+    conn = await connect(_dsn(env))
+    async with conn:
+        store = CandleStore(conn)
+        bars = await load_bars(store, symbols, hyp.timeframes)
+        daily = {s: await store.load_candles(s, "1d") for s in symbols}
+    h1 = H1Params(**hyp.H1.defaults)  # type: ignore[arg-type]
+
+    def progress(msg: str) -> None:
+        log.info("models", msg=msg)
+
+    def work() -> str:
+        cmp = compare_models(cfg, h1, bars, n_sims, progress)
+        initial = cfg.risk.model_copy(update={"kill_switch_basis": "initial"})
+        trades = run_h1(cfg.model_copy(update={"risk": initial}), _data(bars), h1).result.trades
+        return render(cmp, regime_analysis(trades, daily))
+
+    text = await asyncio.to_thread(work)
+    path = Path("docs") / "comparacion-modelos-y-regimen.md"
+    path.write_text(text, encoding="utf-8")
+    print(f"informe: {path}")
+    return 0
+
+
+async def cmd_testnet_check(cfg: AppConfig, env: EnvSettings) -> int:
+    from bot.exchange.trading import BinanceSpotTrading
+
+    key, secret = env.binance_testnet_api_key, env.binance_testnet_api_secret
+    if not (key and secret):
+        print("faltan BINANCE_TESTNET_API_KEY / BINANCE_TESTNET_API_SECRET en .env")
+        return 1
+    url = cfg.settings.execution.testnet_url
+    client = BinanceSpotTrading(url, key.get_secret_value(), secret.get_secret_value(), env)
+    if client.production:
+        print("ERROR: el endpoint no es de testnet")
+        return 1
+    server = await client.server_time()
+    drift_ms = (_now() - server).total_seconds() * 1000
+    balances = await client.balances()
+    open_orders = await client.open_orders()
+    print(f"endpoint: {url} (testnet)")
+    print(f"clave: ...{key.get_secret_value()[-4:]} (solo los 4 últimos caracteres)")
+    print(f"desfase de reloj: {drift_ms:+.0f} ms {'OK' if abs(drift_ms) < 1000 else 'DEMASIADO'}")
+    print(f"saldo USDT de testnet: {balances.get('USDT', 0)}; activos con saldo: {len(balances)}")
+    print(f"órdenes abiertas: {len(open_orders)}")
+    print("Las claves de producción (BINANCE_API_KEY) no se usan para la testnet.")
+    return 0 if abs(drift_ms) < 1000 else 1
+
+
 def cmd_mode(env: EnvSettings) -> int:
     res = resolve_mode(env)
     print(f"solicitado={res.requested!r} resuelto={res.mode.value}")
@@ -319,11 +376,45 @@ def cmd_mode(env: EnvSettings) -> int:
 # ------------------------------------------------------------------ run
 
 
+async def _record_interruption(store: SessionStore, accounts: list[str]) -> None:
+    """Si el último latido es antiguo, el servicio estuvo caído: se registra la interrupción."""
+    last = await store.last_heartbeat("bot")
+    now = _now()
+    if last is not None and (now - last).total_seconds() > 180:
+        minutes = (now - last).total_seconds() / 60
+        log.warning("service_interruption", alert=True, since=last.isoformat(),
+                    minutes=round(minutes, 1))  # fmt: skip
+        detail = {"from": last.isoformat(), "to": now.isoformat(), "minutes": f"{minutes:.1f}"}
+        for account in accounts:
+            await store.add_event(account, now, "interruption", detail)
+
+
 async def _heartbeat(
-    stop: asyncio.Event, every_s: int, mode: TradingMode, live: LiveCandles, paper: Any = None
+    stop: asyncio.Event,
+    every_s: int,
+    mode: TradingMode,
+    live: LiveCandles,
+    paper: Any = None,
+    store: SessionStore | None = None,
+    adapter: Any = None,
 ) -> None:
     started = time.monotonic()
+    started_at = _now()
+    beats = 0
     while not stop.is_set():
+        if store is not None:
+            try:
+                await store.heartbeat("bot", started_at, _now())
+            except Exception as exc:
+                log.error("heartbeat_write_failed", error=repr(exc))
+        if adapter is not None and beats % 10 == 0:  # reloj vs Binance cada ~10 min
+            try:
+                drift_ms = (_now() - await adapter.server_time()).total_seconds() * 1000
+                if abs(drift_ms) > 1000:
+                    log.warning("clock_drift", alert=True, drift_ms=round(drift_ms))
+            except Exception as exc:
+                log.warning("clock_check_failed", error=repr(exc))
+        beats += 1
         extra: dict[str, Any] = {}
         if paper is not None:
             s = paper.session
@@ -423,6 +514,7 @@ async def cmd_run(cfg: AppConfig, env: EnvSettings) -> int:
                 )
 
         live = LiveCandles(store, sync, symbols, data.intervals, data.ws_stream_url)
+        await _record_interruption(SessionStore(meta_conn), ["paper", "testnet"])
         # Paper trading de H1-fijo (estrategia experimental, sin capital real, sin IA).
         hyp = load_hypotheses(env.config_dir / "hypotheses.yaml")
         paper_store = CandleStore(paper_conn)
@@ -461,7 +553,15 @@ async def cmd_run(cfg: AppConfig, env: EnvSettings) -> int:
         tasks += [
             live.run(stop),
             paper.run(stop),
-            _heartbeat(stop, cfg.settings.runtime.heartbeat_seconds, res.mode, live, paper),
+            _heartbeat(
+                stop,
+                cfg.settings.runtime.heartbeat_seconds,
+                res.mode,
+                live,
+                paper,
+                SessionStore(meta_conn),
+                adapter,
+            ),
             _refresh_exchange_info(stop, info, data.exchange_info_refresh_minutes * 60),
         ]
         await asyncio.gather(*tasks)
@@ -483,6 +583,9 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("exchange-info")
     sub.add_parser("mode")
     sub.add_parser("backtest")
+    am = sub.add_parser("analyze-models")
+    am.add_argument("--sims", type=int, default=1000)
+    sub.add_parser("testnet-check")
     ps = sub.add_parser("paper-status")
     ps.add_argument("--account", default="paper")
     rr = sub.add_parser("risk-reset")
@@ -506,6 +609,11 @@ def main(argv: list[str] | None = None) -> int:
     env = EnvSettings()
     cfg = load_config(env.config_dir)
     configure_logging(cfg.settings.runtime.log_level, env.log_format)
+    register_secrets(*(s.get_secret_value() for s in (
+        env.binance_api_key, env.binance_api_secret, env.binance_testnet_api_key,
+        env.binance_testnet_api_secret, env.anthropic_api_key, env.telegram_bot_token,
+        env.database_url,
+    ) if s is not None))  # fmt: skip
     command = args.command or "run"
     if command == "mode":
         return cmd_mode(env)
@@ -519,6 +627,10 @@ def main(argv: list[str] | None = None) -> int:
         return _run_async(cmd_verify(cfg, env))
     if command == "backtest":
         return _run_async(cmd_backtest(cfg, env))
+    if command == "analyze-models":
+        return _run_async(cmd_analyze_models(cfg, env, args.sims))
+    if command == "testnet-check":
+        return _run_async(cmd_testnet_check(cfg, env))
     if command == "paper-status":
         return _run_async(cmd_paper_status(env, args.account))
     if command == "risk-reset":

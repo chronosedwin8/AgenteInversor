@@ -18,6 +18,38 @@ class SessionStore:
     def __init__(self, conn: Conn):
         self._conn = conn
 
+    async def acquire_lock(self, account: str) -> bool:
+        """Bloqueo consultivo de sesión: un solo proceso opera cada cuenta. Se libera solo al
+        cerrarse la conexión (también si el proceso muere)."""
+        cur = await self._conn.execute(
+            "SELECT pg_try_advisory_lock(hashtext(%s))", (f"trader:{account}",)
+        )
+        row = await cur.fetchone()
+        return bool(row and row[0])
+
+    async def heartbeat(self, service: str, started_at: datetime, now: datetime) -> None:
+        await self._conn.execute(
+            "INSERT INTO service_heartbeat (service, started_at, last_at) VALUES (%s, %s, %s)"
+            " ON CONFLICT (service) DO UPDATE SET started_at = EXCLUDED.started_at,"
+            " last_at = EXCLUDED.last_at",
+            (service, started_at, now),
+        )
+
+    async def last_heartbeat(self, service: str) -> datetime | None:
+        cur = await self._conn.execute(
+            "SELECT last_at FROM service_heartbeat WHERE service = %s", (service,)
+        )
+        row = await cur.fetchone()
+        return cast(datetime, row[0]) if row else None
+
+    async def add_event(
+        self, account: str, at: datetime, kind: str, detail: dict[str, Any]
+    ) -> None:
+        await self._conn.execute(
+            "INSERT INTO session_events (account, at, kind, detail) VALUES (%s, %s, %s, %s)",
+            (account, at, kind, Jsonb(detail)),
+        )
+
     async def load(self, account: str) -> tuple[datetime | None, str] | None:
         cur = await self._conn.execute(
             "SELECT last_bar_time, state::text FROM session_state WHERE account = %s", (account,)

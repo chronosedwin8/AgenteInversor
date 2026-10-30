@@ -76,6 +76,7 @@ async def test_every_position_protected_and_restart_does_not_duplicate(btc: Symb
         clock.t = c.close_time + timedelta(seconds=1)
         await _load(store, four, daily, clock.t)
         if k == len(bars) // 2:  # reinicio forzado a mitad de camino
+            sessions.locks.clear()  # el proceso anterior murió: PostgreSQL libera el bloqueo
             trader = _trader(store, sessions, ex, btc, clock)
             await trader.start()
         await trader.step()
@@ -111,7 +112,7 @@ async def test_kill_switch_closes_on_exchange(btc: SymbolFilters) -> None:
     assert trader.positions
     trader.risk.update(clock.t, D(179))  # capital virtual bajo el umbral
     assert trader.risk.kill_switch_active
-    await trader._close_all(clock.t, "kill_switch")
+    await trader._kill(clock.t)
     assert trader.positions == {}
     assert await ex.open_orders() == []  # stops cancelados en el exchange
     assert ex.sent["SELL:MARKET"] >= 1

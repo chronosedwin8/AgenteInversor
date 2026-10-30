@@ -22,9 +22,14 @@ class FakeExchange:
         self.fail_next: dict[str, list[Exception]] = {}  # método → errores a lanzar antes
         self.lose_response: set[str] = set()  # ejecuta pero "se pierde" la respuesta
         self.reject_stops = False
+        self.down = False  # Binance no responde: todo falla con error transitorio
+        self.corrupt_reads = False  # respuestas de consulta incompletas
+        self.sells_not_filled = False  # ventas aceptadas (NEW) que nunca se ejecutan
         self._id = 0
 
     def _maybe_fail(self, method: str) -> None:
+        if self.down:
+            raise TransientExchangeError("sin respuesta")
         errs = self.fail_next.get(method)
         if errs:
             raise errs.pop(0)
@@ -43,13 +48,15 @@ class FakeExchange:
         return info
 
     async def server_time(self) -> datetime:
+        self._maybe_fail("time")
         return self.clock()
 
     async def market_order(
         self, symbol: str, side: str, qty: Decimal, client_order_id: str
     ) -> OrderInfo:
         self._maybe_fail("market")
-        info = self._new(symbol, client_order_id, side, "MARKET", qty, "FILLED")
+        status = "NEW" if side == "SELL" and self.sells_not_filled else "FILLED"
+        info = self._new(symbol, client_order_id, side, "MARKET", qty, status)
         if "market" in self.lose_response:
             self.lose_response.discard("market")
             raise TransientExchangeError("timeout tras ejecutar")
@@ -73,10 +80,18 @@ class FakeExchange:
 
     async def get_order(self, symbol: str, client_order_id: str) -> OrderInfo | None:
         self._maybe_fail("get")
-        return self.orders.get(client_order_id)
+        o = self.orders.get(client_order_id)
+        if o is not None and self.corrupt_reads:
+            return replace(o, status="", client_order_id="")
+        return o
 
     async def open_orders(self, symbol: str | None = None) -> list[OrderInfo]:
+        self._maybe_fail("open")
         return [o for o in self.orders.values() if o.is_open and (symbol in (None, o.symbol))]
+
+    async def orders_since(self, symbol: str, since: datetime) -> list[OrderInfo]:
+        self._maybe_fail("history")
+        return [o for o in self.orders.values() if o.symbol == symbol]
 
     async def balances(self) -> dict[str, Decimal]:
         return {"USDT": Decimal(10_000)}

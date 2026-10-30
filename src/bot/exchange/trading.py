@@ -74,6 +74,7 @@ class TradingClient(Protocol):
     async def get_order(self, symbol: str, client_order_id: str) -> OrderInfo | None: ...
     async def open_orders(self, symbol: str | None = None) -> list[OrderInfo]: ...
     async def balances(self) -> dict[str, Decimal]: ...
+    async def orders_since(self, symbol: str, since: datetime) -> list[OrderInfo]: ...
 
 
 def _num(x: Decimal) -> float:
@@ -224,6 +225,15 @@ class BinanceSpotTrading:
 
     async def open_orders(self, symbol: str | None = None) -> list[OrderInfo]:
         d = await self._call("get_open_orders", symbol=symbol, recv_window=self.recv_window)
+        return [_info(x) for x in d]
+
+    async def orders_since(self, symbol: str, since: datetime) -> list[OrderInfo]:
+        d = await self._call(
+            "all_orders",
+            symbol=symbol,
+            start_time=int(since.timestamp() * 1000),
+            recv_window=self.recv_window,
+        )
         return [_info(x) for x in d]
 
     async def balances(self) -> dict[str, Decimal]:

@@ -49,6 +49,9 @@ al terminar cada fase se muestra qué se hizo y cómo se cumplen sus criterios d
   la API REST usa milisegundos. `bot.data.klines` detecta la unidad.
 
 - Kill switch: −10% desde el MÁXIMO del capital (decisión de Edwin, docs/decision-kill-switch.md).
+- Ejecución (testnet/live): stop-market, cierres solo confirmados (FILLED), emergencias
+  persistentes, un proceso por cuenta (advisory lock), señales caducadas no abren posiciones.
+  Escenarios de fallo en `tests/unit/test_fault_scenarios.py`.
 - La capa de IA está aplazada hasta demostrar que aporta valor medible superior a su costo.
 - No modificar los parámetros de H1 ni relajar criterios retrospectivamente (instrucción de
   Edwin, 2026-10-30).
@@ -61,6 +64,8 @@ docker compose run --rm bot python -m bot.main verify     # informe de huecos de
 docker compose run --rm bot python -m bot.main backtest   # walk-forward; informe en reports/
 docker compose run --rm bot python -m bot.main paper-status  # estado del paper trading
 docker compose run --rm bot python -m bot.main audit-h1  # auditoría pre-registrada de H1
+docker compose run --rm bot python -m bot.main analyze-models  # comparación A/B/C/D y régimen
+docker compose run --rm bot python -m bot.main testnet-check   # verifica claves de testnet
 docker compose --profile ci run --rm --build ci           # mismo pipeline que CI (ruff, mypy, pytest)
 ```
 
