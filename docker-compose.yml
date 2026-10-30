@@ -1,0 +1,52 @@
+name: trading-bot
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: bot
+      POSTGRES_DB: trading_bot
+      # Solo red interna de Docker (puerto no publicado). Define POSTGRES_PASSWORD en .env.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-dev-only}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bot -d trading_bot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  bot:
+    build:
+      context: .
+      target: runtime
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      TRADING_MODE: ${TRADING_MODE:-paper}
+      DATABASE_URL: postgresql://bot:${POSTGRES_PASSWORD:-local-dev-only}@db:5432/trading_bot
+    volumes:
+      - botdata:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Mismo pipeline que CI: docker compose --profile ci run --rm --build ci
+  ci:
+    profiles: ["ci"]
+    build:
+      context: .
+      target: dev
+    environment:
+      TEST_DATABASE_URL: postgresql://bot:${POSTGRES_PASSWORD:-local-dev-only}@db:5432/trading_bot_test
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  botdata:

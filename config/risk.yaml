@@ -1,0 +1,27 @@
+# Límites de riesgo (PLAN.md, sección "Gestión de riesgo").
+# Este archivo se carga UNA vez al arrancar como modelo inmutable: cambiar un límite exige reiniciar.
+# Lo aplica el RiskManager (Fase 3), que es la autoridad final.
+
+initial_capital_usdt: 200
+
+risk_per_trade_pct: 0.5            # ≈ 1,00 USD con 200
+max_position_pct: 40               # ≈ 80 USD
+min_position_notional_multiple: 2  # tamaño mínimo = 2 × NOTIONAL del par + margen
+min_position_margin_pct: 10        # margen sobre ese mínimo
+max_open_positions: 2
+max_open_positions_bstocks: 1
+max_new_trades_per_day: 4
+daily_loss_limit_pct: 2            # sin entradas hasta 00:00 hora Bogotá
+max_consecutive_losses: 3
+consecutive_losses_pause_hours: 24
+
+drawdown_alert_pct: 6              # capital ≤ 188 → riesgo baja a reduced_risk_per_trade_pct
+reduced_risk_per_trade_pct: 0.25
+
+# Kill switch: −10% del capital inicial → capital ≤ 180 USD.
+# Pregunta abierta en PLAN.md: ¿desde el capital inicial o desde el máximo? Se usa el inicial
+# hasta que Edwin decida.
+kill_switch_pct: 10
+
+leverage: none
+fee_rate: 0.001                    # 0,1% por lado (0,00075 con BNB)

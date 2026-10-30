@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trading-bot"
+version = "0.1.0"
+description = "Bot de trading intradía en Binance Spot con filtro de IA"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "binance-sdk-spot>=13.4,<14",
+    "aiohttp>=3.10",
+    "psycopg[binary]>=3.3,<4",
+    "pydantic>=2.14,<3",
+    "pydantic-settings>=2.16,<3",
+    "pyyaml>=6.0",
+    "structlog>=26.1",
+    "tzdata>=2025.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4",
+    "pytest-asyncio>=1.2",
+    "ruff>=0.14",
+    "mypy>=1.18",
+    "types-PyYAML",
+]
+
+[project.scripts]
+bot = "bot.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "integration: requiere PostgreSQL (TEST_DATABASE_URL)",
+    "network: requiere acceso a internet (Binance público)",
+]
+addopts = "-ra --strict-markers"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.format]
+line-ending = "lf"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "DTZ", "S", "ASYNC"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # textos en español con tildes
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "src"
+packages = ["bot"]
+strict = true
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["binance_sdk_spot.*", "binance_common.*"]
+ignore_missing_imports = true

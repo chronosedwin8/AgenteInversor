@@ -1,0 +1,51 @@
+# Parámetros de la estrategia "seguir la tendencia comprando retrocesos" (PLAN.md).
+# Se usan a partir de la Fase 2. Nunca ajustar mirando el periodo de validación.
+
+timeframes:
+  regime: 1h
+  signal: 15m
+
+regime:                       # 1 h
+  ema_fast: 50
+  ema_slow: 200
+  adx_period: 14
+  adx_min: 20
+
+pullback:                     # 15 min
+  lookback_candles: 3
+  ema_touch: 20
+  ema_floor: 50
+  touch_atr_tolerance: 0.2    # mínimo a menos de 0,2×ATR de la EMA20
+  rsi_period: 14
+  rsi_min: 40
+  rsi_max: 60
+
+trigger:                      # 15 min
+  volume_ma_period: 20
+  volume_multiplier: 1.2
+  macd: { fast: 12, slow: 26, signal: 9 }
+
+quality:
+  atr_period: 14
+  atr_min_pct: 0.35
+  atr_max_pct: 3.0
+  max_spread_pct: 0.05
+
+entry:
+  order_type: LIMIT_MAKER
+  cancel_after_candles: 2     # 30 min
+
+exit:
+  stop_atr_multiple: 1.5
+  stop_max_pct: 3.0
+  partial_take_r: 1.5
+  partial_fraction: 0.5
+  trailing_atr_multiple: 2.0
+  exit_on_close_below_ema: 20
+  time_stop_candles: 8
+  time_stop_min_r: 0.5
+  max_holding_hours: 12
+
+costs:
+  fee_rate: 0.001             # 0,1% por lado (0,00075 con BNB)
+  slippage_rate: 0.0005       # 0,05% en backtest

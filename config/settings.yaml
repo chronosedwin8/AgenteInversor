@@ -1,0 +1,33 @@
+# Configuración general. El modo (backtest|paper|live) NO va aquí: se toma de TRADING_MODE
+# en el entorno, y live exige además LIVE_CONFIRM=yes y claves de producción.
+
+timezone: America/Bogota
+
+universe:
+  crypto:
+    symbols: [BTCUSDT, ETHUSDT, SOLUSDT]
+    # Nuevas entradas preferentemente en esta ventana (hora Bogotá). Se usa desde la Fase 2.
+    entry_window_local: { start: "07:00", end: "18:00" }
+  bstocks:
+    # Apagado hasta confirmar elegibilidad de la cuenta (pregunta abierta en PLAN.md).
+    enabled: false
+    symbols: [NVDABUSDT, TSLABUSDT]
+    calendar: XNYS
+    open_offset_minutes: 15     # opera desde apertura + 15 min
+    close_offset_minutes: 30    # hasta cierre - 30 min
+    force_exit_minutes_before_close: 10
+
+data:
+  intervals: ["15m", "1h"]
+  history_months: 13            # 12+ meses de historia (meses completos) + mes en curso
+  cache_dir: data/cache         # zips de data.binance.vision (verificados con SHA256)
+  # Solo datos de mercado: estos hosts no aceptan órdenes.
+  rest_base_url: https://data-api.binance.vision
+  ws_stream_url: wss://data-stream.binance.vision
+  vision_base_url: https://data.binance.vision
+  rest_timeout_ms: 10000
+  exchange_info_refresh_minutes: 60
+
+runtime:
+  heartbeat_seconds: 60
+  log_level: INFO
