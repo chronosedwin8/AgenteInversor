@@ -43,6 +43,10 @@ class EnvSettings(BaseSettings):
     # servidor: una sola fuente de verdad).
     paper_enabled: bool = True
 
+    # Intervalos de velas a mantener en esta máquina (vacío = los de settings.yaml). En un
+    # servidor pequeño basta "4h,1d" (lo que usa H1).
+    data_intervals: str = ""
+
     # Informe semanal por correo (SMTP con STARTTLS; p. ej. Gmail con contraseña de aplicación).
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 587

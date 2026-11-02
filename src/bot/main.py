@@ -672,6 +672,10 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     env = EnvSettings()
     cfg = load_config(env.config_dir)
+    if env.data_intervals.strip():
+        intervals = tuple(x.strip() for x in env.data_intervals.split(",") if x.strip())
+        data = cfg.settings.data.model_copy(update={"intervals": intervals})
+        cfg = cfg.model_copy(update={"settings": cfg.settings.model_copy(update={"data": data})})
     configure_logging(cfg.settings.runtime.log_level, env.log_format)
     register_secrets(*(s.get_secret_value() for s in (
         env.binance_api_key, env.binance_api_secret, env.binance_testnet_api_key,
