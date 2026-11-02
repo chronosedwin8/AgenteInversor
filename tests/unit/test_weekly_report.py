@@ -35,7 +35,9 @@ def _acc() -> AccountData:
         (_utc(tue, 12), D("202.50")),
         (_utc(thu, 21), D("201.50")),
     ]
-    acc.events = [(_utc(MONDAY, 9), "interruption", {"minutes": "90"}),
+    off = {"from": (_utc(MONDAY, 9) - timedelta(minutes=90)).isoformat(),
+           "to": _utc(MONDAY, 9).isoformat()}  # fmt: skip
+    acc.events = [(_utc(MONDAY, 9), "interruption", off),
                   (_utc(MONDAY, 10), "order_placed", {}),
                   (_utc(thu, 8), "signal_rejected", {})]  # fmt: skip
     return acc
@@ -71,3 +73,12 @@ def test_is_due_only_sunday_night_once_per_week() -> None:
     assert is_due(sun_late, "2026-W45")[0] is False  # ya enviado
     assert is_due(sun_early, None)[0] is False
     assert is_due(sat, None)[0] is False
+
+
+def test_interruption_minutes_are_split_by_day() -> None:
+    acc = AccountData("paper", D(200))
+    # Apagado del sábado 31/10 19:00 al lunes 02/11 09:00 (hora Bogotá): registrado el lunes.
+    off = {"from": _utc(date(2026, 10, 31), 19).isoformat(), "to": _utc(MONDAY, 9).isoformat()}
+    acc.events = [(_utc(MONDAY, 9), "interruption", off)]
+    rows = daily_rows(acc, MONDAY, BOG, _utc(MONDAY, 12))
+    assert rows[0].interruption_min == 9 * 60  # solo la parte del lunes

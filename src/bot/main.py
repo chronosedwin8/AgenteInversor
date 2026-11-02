@@ -384,7 +384,11 @@ async def cmd_weekly_report(cfg: AppConfig, env: EnvSettings, send: bool) -> int
         tz = cfg.settings.tz
         monday, _ = week_bounds(now.astimezone(tz).date())
         accounts = []
-        for name in ("paper", "testnet"):
+        # Solo las cuentas que corren en ESTA máquina (las demás serían copias congeladas).
+        here = ["paper"] if env.paper_enabled else []
+        if cfg.settings.execution.testnet_enabled and env.binance_testnet_api_key:
+            here.append("testnet")
+        for name in here:
             acc = await load_account(store, name, cfg.risk.initial_capital_usdt)
             if acc is not None:
                 accounts.append(acc)

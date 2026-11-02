@@ -96,6 +96,15 @@ class DayRow:
         return self.change / self.start * 100 if self.start else Decimal(0)
 
 
+def _overlap_min(detail: dict[str, Any], start: datetime, end: datetime) -> float:
+    """Minutos de una interrupción [from, to] que caen dentro del día [start, end)."""
+    try:
+        a, b = datetime.fromisoformat(detail["from"]), datetime.fromisoformat(detail["to"])
+    except (KeyError, ValueError):
+        return 0.0
+    return max((min(b, end) - max(a, start)).total_seconds(), 0.0) / 60
+
+
 def daily_rows(acc: AccountData, monday: date, tz: ZoneInfo, now: datetime) -> list[DayRow]:
     acc.equity.sort(key=lambda x: x[0])
     rows = []
@@ -107,7 +116,9 @@ def daily_rows(acc: AccountData, monday: date, tz: ZoneInfo, now: datetime) -> l
             break
         in_day = [x for x in acc.trades if start <= x.closed_at < end]
         ev = [e for e in acc.events if start <= e[0] < end]
-        interruption = sum(float(e[2].get("minutes", 0)) for e in ev if e[1] == "interruption")
+        interruption = sum(
+            _overlap_min(e[2], start, end) for e in acc.events if e[1] == "interruption"
+        )
         rows.append(
             DayRow(
                 d,
