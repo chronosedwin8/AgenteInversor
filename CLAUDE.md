@@ -56,6 +56,11 @@ al terminar cada fase se muestra qué se hizo y cómo se cumplen sus criterios d
 - No modificar los parámetros de H1 ni relajar criterios retrospectivamente (instrucción de
   Edwin, 2026-10-30).
 
+## Despliegue
+
+Paper trading 24/7 en EC2 us-east-1 (docs/despliegue-ec2.md). Testnet en el PC de Edwin
+(Binance responde 451 desde EE. UU.; no usar proxies/VPN). Informe semanal por correo desde la EC2.
+
 ## Comandos
 
 ```bash
