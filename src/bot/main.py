@@ -392,10 +392,14 @@ async def cmd_weekly_report(cfg: AppConfig, env: EnvSettings, send: bool) -> int
             acc = await load_account(store, name, cfg.risk.initial_capital_usdt)
             if acc is not None:
                 accounts.append(acc)
-    subject, body = render_weekly(accounts, monday, tz, now)
+    subject, body, html = render_weekly(accounts, monday, tz, now)
     print(subject)
     print()
     print(body)
+    preview = Path("reports") / "informe-semanal-vista-previa.html"
+    preview.parent.mkdir(parents=True, exist_ok=True)
+    preview.write_text(html, encoding="utf-8")
+    print(f"vista previa HTML: {preview}")
     if send:
         mail = MailConfig(env.smtp_host, env.smtp_port, env.smtp_user,
                           env.smtp_password.get_secret_value() if env.smtp_password else "",
@@ -403,7 +407,7 @@ async def cmd_weekly_report(cfg: AppConfig, env: EnvSettings, send: bool) -> int
         if not mail.complete:
             print("\nfalta SMTP_USER / SMTP_PASSWORD / REPORT_EMAIL_TO en .env")
             return 1
-        await asyncio.to_thread(send_mail, mail, "[PRUEBA] " + subject, body)
+        await asyncio.to_thread(send_mail, mail, "[PRUEBA] " + subject, body, html)
         print(f"\nenviado a {mail.to}")
     return 0
 

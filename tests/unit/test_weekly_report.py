@@ -57,12 +57,33 @@ def test_daily_rows_and_weekly_totals() -> None:
     assert tue.change == D("2.10") and len(tue.trades) == 1
     assert wed.change == 0  # sin cambios
     assert thu.change == D("-1.00") and thu.rejected == 1
-    subject, body = render_weekly([_acc()], MONDAY, BOG, now)
-    assert "GANANCIA" in body and "+1.50 USDT" in body  # 200 → 201,50
-    assert "NO es dinero real" in body
-    assert "paper +1.50 USDT" in subject
-    assert "Días con ganancia: 2; con pérdida: 1; sin cambios: 4" in body
-    assert "ETHUSDT" in body and "BTCUSDT" in body
+    subject, text, html = render_weekly([_acc()], MONDAY, BOG, now)
+    # Texto plano: resultado con formato colombiano y veredicto.
+    assert "+1,50 USDT" in text and "GANANCIA" in text  # 200 → 201,50
+    assert "no es dinero real" in text
+    assert "Lunes 2 nov" in text
+    # Asunto claro.
+    assert subject.startswith("Bot de trading · semana 2–8 nov: ganancia")
+    assert "Paper +1,50 USDT" in subject
+    # HTML: tarjeta con color de ganancia, días, operaciones traducidas, glosario.
+    assert "<!DOCTYPE html>" in html and "#1e8e3e" in html
+    assert "2 con ganancia · 1 con pérdida · 4 sin cambios" in html
+    assert "Stop dinámico (asegura ganancias)" in html and "Venta parcial" in html
+    assert "bot sin servicio 1 h 30 min" in html
+    assert "1 señal bloqueada por el control de riesgo" in html
+    assert "(1 ganadora)" in html and "Sin operaciones (no hubo señal de compra)" in html
+    assert "Cómo leer este informe" in html
+    assert ">BTC<" in html and ">ETH<" in html
+
+
+def test_money_format_and_losing_week_is_red() -> None:
+    from bot.monitoring.weekly import money
+
+    assert money(D("1234.5")) == "1.234,50" and money(D("-3.2"), True) == "-3,20"
+    acc = AccountData("paper", D(200))
+    acc.equity = [(_utc(MONDAY, 12), D("195.00"))]
+    subject, _, html = render_weekly([acc], MONDAY, BOG, _utc(MONDAY, 20))
+    assert "pérdida" in subject and "#d93025" in html and "-5,00 USDT" in html
 
 
 def test_is_due_only_sunday_night_once_per_week() -> None:
