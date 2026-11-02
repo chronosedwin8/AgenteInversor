@@ -397,9 +397,12 @@ async def cmd_weekly_report(cfg: AppConfig, env: EnvSettings, send: bool) -> int
     print()
     print(body)
     preview = Path("reports") / "informe-semanal-vista-previa.html"
-    preview.parent.mkdir(parents=True, exist_ok=True)
-    preview.write_text(html, encoding="utf-8")
-    print(f"vista previa HTML: {preview}")
+    try:
+        preview.parent.mkdir(parents=True, exist_ok=True)
+        preview.write_text(html, encoding="utf-8")
+        print(f"vista previa HTML: {preview}")
+    except OSError as exc:
+        print(f"(no se pudo guardar la vista previa: {exc})")
     if send:
         mail = MailConfig(env.smtp_host, env.smtp_port, env.smtp_user,
                           env.smtp_password.get_secret_value() if env.smtp_password else "",

@@ -497,7 +497,10 @@ async def weekly_report_loop(
                 monday, _ = week_bounds(now.astimezone(tz).date())
                 data = [a for a in [await load_account(store, x, initial) for x in accounts] if a]
                 subject, body, html = render_weekly(data, monday, tz, now)
-                await asyncio.to_thread(_save, out_dir / f"informe-semanal-{key}.html", html)
+                try:  # la copia local nunca debe impedir el envío
+                    await asyncio.to_thread(_save, out_dir / f"informe-semanal-{key}.html", html)
+                except OSError as exc:
+                    log.warning("weekly_report_copy_failed", error=repr(exc))
                 if mail.complete:
                     await asyncio.to_thread(send_mail, mail, subject, body, html)
                     log.info("weekly_report_sent", week=key, to=mail.to)
