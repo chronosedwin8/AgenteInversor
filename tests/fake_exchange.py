@@ -51,6 +51,10 @@ class FakeExchange:
         self._maybe_fail("time")
         return self.clock()
 
+    async def sync_clock(self) -> float:
+        self._maybe_fail("time")
+        return 0.0
+
     async def market_order(
         self, symbol: str, side: str, qty: Decimal, client_order_id: str
     ) -> OrderInfo:

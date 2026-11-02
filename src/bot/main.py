@@ -26,7 +26,7 @@ import signal
 import sys
 import time
 from collections.abc import Coroutine
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -352,13 +352,15 @@ async def cmd_testnet_check(cfg: AppConfig, env: EnvSettings) -> int:
     if client.production:
         print("ERROR: el endpoint no es de testnet")
         return 1
+    raw_offset = await client.sync_clock()  # corrige la firma de las peticiones
     server = await client.server_time()
-    drift_ms = (_now() - server).total_seconds() * 1000
+    drift_ms = (_now() + timedelta(milliseconds=raw_offset) - server).total_seconds() * 1000
+    print(f"desfase del reloj del sistema: {-raw_offset:+.0f} ms (corregido en la firma)")
     balances = await client.balances()
     open_orders = await client.open_orders()
     print(f"endpoint: {url} (testnet)")
     print(f"clave: ...{key.get_secret_value()[-4:]} (solo los 4 últimos caracteres)")
-    print(f"desfase de reloj: {drift_ms:+.0f} ms {'OK' if abs(drift_ms) < 1000 else 'DEMASIADO'}")
+    print(f"desfase residual: {drift_ms:+.0f} ms {'OK' if abs(drift_ms) < 1000 else 'DEMASIADO'}")
     print(f"saldo USDT de testnet: {balances.get('USDT', 0)}; activos con saldo: {len(balances)}")
     print(f"órdenes abiertas: {len(open_orders)}")
     print("Las claves de producción (BINANCE_API_KEY) no se usan para la testnet.")

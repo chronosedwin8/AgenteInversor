@@ -451,9 +451,18 @@ class ExchangeTrader:
     # ------------------------------------------------------------ reconciliación
 
     async def check_clock(self, max_drift_ms: float = 1000.0) -> float:
-        """Desfase reloj local vs servidor. Si supera el máximo, se pausan las entradas."""
+        """Sincroniza la corrección de reloj de la firma y comprueba el desfase residual. Si el
+        desfase bruto es enorme o el residual supera el máximo, se pausan las entradas."""
+        try:
+            offset = await self.client.sync_clock()
+        except ValueError as exc:  # desfase bruto > 30 s
+            self._pause(f"reloj desincronizado: {exc}")
+            return float("inf")
+        if abs(offset) > max_drift_ms:
+            log.warning(f"{self.account}_clock_offset_corrected", offset_ms=round(offset))
         server = await self.client.server_time()
-        drift = (self.clock() - server).total_seconds() * 1000
+        corrected_now = self.clock() + timedelta(milliseconds=offset)
+        drift = (corrected_now - server).total_seconds() * 1000
         if abs(drift) > max_drift_ms:
             self._pause(f"reloj desincronizado {drift:.0f} ms")
         elif self.paused_reason and self.paused_reason.startswith("reloj desincronizado"):

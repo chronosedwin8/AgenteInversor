@@ -8,6 +8,7 @@ una aprobación firmada del RiskManager para abrir posiciones.
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -62,7 +63,41 @@ class OrderInfo:
         return self.status in ("NEW", "PARTIALLY_FILLED")
 
 
+MAX_CLOCK_OFFSET_MS = 30_000  # un desfase mayor indica un problema grave: no se opera
+
+
+class ClockCorrection:
+    """Corrección del reloj para las peticiones FIRMADAS (estándar en clientes de Binance).
+
+    Binance rechaza peticiones cuya marca de tiempo se aleja de la suya más que `recvWindow`.
+    Si el reloj del sistema está desfasado (p. ej. Windows sin sincronizar), se mide el desfase
+    contra el servidor y se suma a la marca de tiempo que genera el SDK. Solo afecta a la firma
+    de peticiones; los datos de mercado usan los tiempos de las velas de Binance.
+    """
+
+    offset_ms: float = 0.0
+    installed = False
+
+    @classmethod
+    def corrected_ms(cls) -> int:
+        return int(time.time() * 1000 + cls.offset_ms)
+
+    @classmethod
+    def install(cls, offset_ms: float) -> None:
+        import binance_common.utils as sdk_utils
+
+        if abs(offset_ms) > MAX_CLOCK_OFFSET_MS:
+            raise ValueError(f"desfase de reloj de {offset_ms:.0f} ms: demasiado grande")
+        cls.offset_ms = offset_ms
+        sdk_utils.get_timestamp = cls.corrected_ms  # el SDK la consulta en cada petición
+        cls.installed = True
+
+
 class TradingClient(Protocol):
+    async def sync_clock(self) -> float:
+        """Mide el desfase (servidor − local, ms) y corrige la firma. Devuelve el desfase."""
+        ...
+
     async def server_time(self) -> datetime: ...
     async def market_order(
         self, symbol: str, side: str, qty: Decimal, client_order_id: str
@@ -168,6 +203,14 @@ class BinanceSpotTrading:
     async def server_time(self) -> datetime:
         d = await self._call("time")
         return ts_to_datetime(int(d["serverTime"]))
+
+    async def sync_clock(self) -> float:
+        t0 = time.time()
+        d = await self._call("time")
+        t1 = time.time()
+        offset = int(d["serverTime"]) - (t0 + t1) / 2 * 1000  # punto medio del viaje
+        ClockCorrection.install(offset)
+        return offset
 
     async def market_order(
         self, symbol: str, side: str, qty: Decimal, client_order_id: str
