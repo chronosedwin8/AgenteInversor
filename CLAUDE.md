@@ -58,8 +58,9 @@ al terminar cada fase se muestra qué se hizo y cómo se cumplen sus criterios d
 
 ## Despliegue
 
-Paper trading 24/7 en EC2 us-east-1 (docs/despliegue-ec2.md). Testnet en el PC de Edwin
-(Binance responde 451 desde EE. UU.; no usar proxies/VPN). Informe semanal por correo desde la EC2.
+Todo corre en la EC2 de São Paulo (sa-east-1, Ubuntu, `DATA_INTERVALS=4h,1d`): paper +
+testnet 24/7 e informe semanal por correo (docs/despliegue-ec2.md). Binance responde 451 desde
+EE. UU.: nunca desplegar allí ni usar proxies/VPN.
 
 ## Comandos
 

@@ -1,31 +1,31 @@
 # Despliegue en AWS EC2
 
-Fecha: 2026-11-02.
+Actualizado: 2026-11-02.
 
-## Servidor actual
+## Servidor en producción de pruebas: São Paulo (sa-east-1)
 
-- EC2 t2.micro (1 vCPU, 1 GB RAM + 2 GB de swap), Amazon Linux 2023, región **us-east-1**.
-- Usuario `ec2-user`, acceso por SSH con la clave del dueño (no está en el repositorio).
-- Código en `~/trading-bot` (clon de este repositorio), secretos en `~/trading-bot/.env`
-  (permisos 600; contraseña aleatoria de PostgreSQL; nunca en git).
-- Instalación reproducible: `deploy/ec2_setup.sh` (Docker, Compose, Buildx, swap, chrony, código).
-- Estado migrado desde el PC con `pg_dump`/`pg_restore` (velas, estado del paper, eventos).
+- EC2 t2.micro (1 vCPU, 1 GB RAM + 2 GB de swap), **Ubuntu 26.04**, región **sa-east-1**.
+- Usuario `ubuntu`; acceso SSH con la clave del dueño (no está en el repositorio).
+- Código en `~/trading-bot`; secretos en `~/trading-bot/.env` (permisos 600, contraseña de
+  PostgreSQL aleatoria generada en el servidor; nunca en git).
+- `DATA_INTERVALS=4h,1d`: el disco es pequeño (≈ 7 GB) y H1 solo usa velas de 4 h y diarias.
+- Instalación reproducible: `deploy/ec2_setup.sh` (Ubuntu o Amazon Linux).
 
-## Qué corre dónde
+| Componente | Estado |
+| --- | --- |
+| Paper trading de H1 (200 USDT virtuales) | 24/7 |
+| Spot Testnet (órdenes reales de prueba, 200 USDT virtuales) | 24/7 — las 2 semanas cuentan desde el 2026-11-02 16:13 UTC |
+| Informe semanal por correo | domingo 23:30 hora Bogotá a `REPORT_EMAIL_TO` |
 
-| Componente | Dónde | Motivo |
-| --- | --- | --- |
-| Paper trading de H1 | **EC2** (24/7) | solo usa datos públicos de mercado (`data-api.binance.vision`, responde desde EE. UU.) |
-| Spot Testnet | PC de Edwin (`PAPER_ENABLED=false`) | `testnet.binance.vision` responde **451 (ubicación restringida)** desde us-east-1 |
-| Informe semanal por correo | EC2 | domingo 23:30 hora Bogotá a `REPORT_EMAIL_TO` |
+Comprobado desde São Paulo: `api.binance.com`, `testnet.binance.vision` y
+`data-api.binance.vision` responden 200.
 
-Binance restringe EE. UU. (también `api.binance.com`). No se usan proxies ni VPN para saltar la
-restricción: incumpliría sus términos. Para testnet (y cualquier futura cuenta real) el servidor
-debe estar en una región permitida, p. ej. **sa-east-1 (São Paulo)**. Mover todo allí:
+## Servidor anterior (us-east-1) y PC
 
-1. Crear una instancia Amazon Linux 2023 en sa-east-1 con la misma clave.
-2. `bash ec2_setup.sh` (descargado del repositorio), copiar `.env` y la base (`pg_dump`).
-3. Activar las claves de testnet en su `.env` y desactivar el bot del PC.
+- La EC2 de us-east-1 (32.200.93.77) quedó **detenida** (contenedores apagados): desde EE. UU.
+  Binance responde 451 a la testnet y a la API. Puede terminarse desde la consola de AWS.
+- El PC de Edwin ya no ejecuta el bot (contenedores detenidos; datos conservados en su volumen
+  como respaldo).
 
 ## Operación
 
@@ -34,14 +34,18 @@ cd ~/trading-bot
 sudo docker compose ps
 sudo docker compose logs -f bot
 sudo docker compose run --rm bot python -m bot.main paper-status
+sudo docker compose run --rm bot python -m bot.main paper-status --account testnet
+sudo docker compose run --rm bot python -m bot.main testnet-check
 sudo docker compose run --rm bot python -m bot.main weekly-report          # ver el informe
 sudo docker compose run --rm bot python -m bot.main weekly-report --send   # enviar prueba
 git pull && sudo docker compose up -d --build                               # actualizar
 ```
 
+`reports/` debe pertenecer al usuario del contenedor (uid 10001) para guardar copias de los
+informes: `sudo chown -R 10001:10001 reports`.
+
 ## Correo semanal
 
-Requiere SMTP en el `.env` del servidor. Con Gmail: activar la verificación en 2 pasos en la cuenta
-que envía, crear una **contraseña de aplicación** (16 caracteres) y poner `SMTP_USER` (la cuenta)
-y `SMTP_PASSWORD` (la contraseña de aplicación). Sin SMTP, el informe se guarda en
-`reports/informe-semanal-<semana>.txt` y se registra un aviso.
+SMTP de Gmail con una contraseña de aplicación ("Bot trading", creada el 2026-11-02 en la cuenta
+remitente). Se revoca o regenera en <https://myaccount.google.com/apppasswords>; después se
+actualiza `SMTP_PASSWORD` en el `.env` del servidor y se reinicia el bot.
