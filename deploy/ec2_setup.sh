@@ -23,7 +23,10 @@ if ! docker compose version >/dev/null 2>&1; then
     "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
   sudo chmod +x "$PLUGINS/docker-compose"
 fi
-if ! docker buildx version >/dev/null 2>&1; then
+# El paquete de Amazon Linux trae un buildx antiguo; compose build exige >= 0.17.
+BX=$(docker buildx version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+' | head -1 | tr -d v)
+if [ -z "$BX" ] || [ "$(printf '%s
+' 0.17 "$BX" | sort -V | head -1)" != "0.17" ]; then
   sudo curl -fsSL -o "$PLUGINS/docker-buildx" \
     "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-amd64"
   sudo chmod +x "$PLUGINS/docker-buildx"
