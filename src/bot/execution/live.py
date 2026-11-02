@@ -304,6 +304,13 @@ class ExchangeTrader:
                 self._event("risk_event", t, event=e.kind, equity=e.equity, detail=e.detail)
             if any(e.kind is RiskEventKind.KILL_SWITCH for e in events):
                 await self._kill(t)
+            self._events.append(
+                (
+                    t,
+                    "bar_processed",
+                    {"processed_at": self.clock().isoformat(), "equity": str(self.pf.equity())},
+                )
+            )
             self.last_bar_time = t
             await self._persist()
         return len(times)
@@ -421,12 +428,22 @@ class ExchangeTrader:
                     version = int(parts[4]) if len(parts) > 4 else 0
                     pos = PositionOrders(sym, signal_time, stop.orig_qty, entry, stop, version)
                     self._book_entry(sym, entry, stop.orig_qty, stop.stop_price, signal_time)
-                    rebuilt = EntrySignal(sym, signal_time, float(entry.avg_price), 0.0,
-                                          float(stop.stop_price), "market", "H1")  # fmt: skip
+                    rebuilt = EntrySignal(
+                        sym,
+                        signal_time,
+                        float(entry.avg_price),
+                        0.0,
+                        float(stop.stop_price),
+                        "market",
+                        "H1",
+                    )
                     plan = self.strategy.open_plan(
-                        rebuilt, float(entry.avg_price), float(stop.stop_price),
-                        float(self.fee), signal_time,
-                    )  # fmt: skip
+                        rebuilt,
+                        float(entry.avg_price),
+                        float(stop.stop_price),
+                        float(self.fee),
+                        signal_time,
+                    )
                     self.positions[sym] = (pos, plan)
                     self._event(
                         "position_rebuilt",

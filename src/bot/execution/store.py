@@ -50,6 +50,17 @@ class SessionStore:
             (account, at, kind, Jsonb(detail)),
         )
 
+    async def last_report_week(self) -> str | None:
+        cur = await self._conn.execute(
+            "SELECT detail->>'week' FROM session_events WHERE account = 'system'"
+            " AND kind = 'weekly_report' ORDER BY id DESC LIMIT 1"
+        )
+        row = await cur.fetchone()
+        return cast(str, row[0]) if row else None
+
+    async def mark_report_sent(self, week: str, at: datetime, emailed: bool) -> None:
+        await self.add_event("system", at, "weekly_report", {"week": week, "emailed": emailed})
+
     async def load(self, account: str) -> tuple[datetime | None, str] | None:
         cur = await self._conn.execute(
             "SELECT last_bar_time, state::text FROM session_state WHERE account = %s", (account,)

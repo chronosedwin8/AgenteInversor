@@ -140,6 +140,7 @@ class PaperTrader:
             self._events.append((t, "bar_processed", {
                 "processed_at": self.clock().isoformat(), "lag_s": f"{lag:.0f}",
                 "catch_up": str(lag > interval_delta(SIGNAL_TF).total_seconds()),
+                "equity": str(self.session.pf.equity()),
             }))  # fmt: skip
             self.last_bar_time = t
             if t == newest and self.live_quotes:

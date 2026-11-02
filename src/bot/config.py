@@ -38,6 +38,17 @@ class EnvSettings(BaseSettings):
 
     database_url: SecretStr | None = None
     config_dir: Path = Path("config")
+
+    # Paper trading en esta máquina (desactivar donde no deba correr, p. ej. si corre en otro
+    # servidor: una sola fuente de verdad).
+    paper_enabled: bool = True
+
+    # Informe semanal por correo (SMTP con STARTTLS; p. ej. Gmail con contraseña de aplicación).
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: SecretStr | None = None
+    report_email_to: str = ""
     log_format: Literal["json", "console"] = "json"
 
 

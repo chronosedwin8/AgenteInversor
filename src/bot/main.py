@@ -13,6 +13,7 @@ Comandos:
   analyze-models comparación A/B/C/D y análisis por régimen (docs/fase-testnet-plan.md)
   paper-status   estado del paper trading (capital, posiciones, operaciones, kill switch)
   testnet-check  verifica las claves de Spot Testnet (sin mostrarlas) y el reloj
+  weekly-report  informe semanal (semana en curso); --send lo envía por correo
   risk-reset     reinicio MANUAL del kill switch de una cuenta (pide frase de confirmación)
 """
 
@@ -367,6 +368,42 @@ async def cmd_testnet_check(cfg: AppConfig, env: EnvSettings) -> int:
     return 0 if abs(drift_ms) < 1000 else 1
 
 
+async def cmd_weekly_report(cfg: AppConfig, env: EnvSettings, send: bool) -> int:
+    from bot.monitoring.weekly import (
+        MailConfig,
+        load_account,
+        render_weekly,
+        send_mail,
+        week_bounds,
+    )
+
+    conn = await connect(_dsn(env))
+    async with conn:
+        store = SessionStore(conn)
+        now = _now()
+        tz = cfg.settings.tz
+        monday, _ = week_bounds(now.astimezone(tz).date())
+        accounts = []
+        for name in ("paper", "testnet"):
+            acc = await load_account(store, name, cfg.risk.initial_capital_usdt)
+            if acc is not None:
+                accounts.append(acc)
+    subject, body = render_weekly(accounts, monday, tz, now)
+    print(subject)
+    print()
+    print(body)
+    if send:
+        mail = MailConfig(env.smtp_host, env.smtp_port, env.smtp_user,
+                          env.smtp_password.get_secret_value() if env.smtp_password else "",
+                          env.report_email_to)  # fmt: skip
+        if not mail.complete:
+            print("\nfalta SMTP_USER / SMTP_PASSWORD / REPORT_EMAIL_TO en .env")
+            return 1
+        await asyncio.to_thread(send_mail, mail, "[PRUEBA] " + subject, body)
+        print(f"\nenviado a {mail.to}")
+    return 0
+
+
 def cmd_mode(env: EnvSettings) -> int:
     res = resolve_mode(env)
     print(f"solicitado={res.requested!r} resuelto={res.mode.value}")
@@ -520,7 +557,7 @@ async def cmd_run(cfg: AppConfig, env: EnvSettings) -> int:
         # Paper trading de H1-fijo (estrategia experimental, sin capital real, sin IA).
         hyp = load_hypotheses(env.config_dir / "hypotheses.yaml")
         paper_store = CandleStore(paper_conn)
-        paper = PaperTrader(
+        paper: PaperTrader | None = PaperTrader(
             cfg,
             H1Params(**hyp.H1.defaults),  # type: ignore[arg-type]
             paper_store,
@@ -552,9 +589,24 @@ async def cmd_run(cfg: AppConfig, env: EnvSettings) -> int:
             log.info("testnet_enabled", url=ex_cfg.testnet_url)
         else:
             log.info("testnet_disabled", reason="faltan claves de testnet o está desactivado")
+        if not env.paper_enabled:
+            paper = None
+            log.info("paper_disabled", reason="PAPER_ENABLED=false en esta máquina")
+        from bot.monitoring.weekly import MailConfig, weekly_report_loop
+
+        mail = MailConfig(env.smtp_host, env.smtp_port, env.smtp_user,
+                          env.smtp_password.get_secret_value() if env.smtp_password else "",
+                          env.report_email_to)  # fmt: skip
+        accounts = [a for a, on in (("paper", paper is not None),
+                                    ("testnet", ex_cfg.testnet_enabled and bool(key)))
+                    if on]  # fmt: skip
+        tasks.append(weekly_report_loop(stop, SessionStore(meta_conn), accounts,
+                                        cfg.risk.initial_capital_usdt, cfg.settings.tz, mail,
+                                        Path("reports")))  # fmt: skip
+        if paper is not None:
+            tasks.append(paper.run(stop))
         tasks += [
             live.run(stop),
-            paper.run(stop),
             _heartbeat(
                 stop,
                 cfg.settings.runtime.heartbeat_seconds,
@@ -588,6 +640,8 @@ def _parser() -> argparse.ArgumentParser:
     am = sub.add_parser("analyze-models")
     am.add_argument("--sims", type=int, default=1000)
     sub.add_parser("testnet-check")
+    wr = sub.add_parser("weekly-report")
+    wr.add_argument("--send", action="store_true")
     ps = sub.add_parser("paper-status")
     ps.add_argument("--account", default="paper")
     rr = sub.add_parser("risk-reset")
@@ -614,7 +668,7 @@ def main(argv: list[str] | None = None) -> int:
     register_secrets(*(s.get_secret_value() for s in (
         env.binance_api_key, env.binance_api_secret, env.binance_testnet_api_key,
         env.binance_testnet_api_secret, env.anthropic_api_key, env.telegram_bot_token,
-        env.database_url,
+        env.database_url, env.smtp_password,
     ) if s is not None))  # fmt: skip
     command = args.command or "run"
     if command == "mode":
@@ -631,6 +685,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_async(cmd_backtest(cfg, env))
     if command == "analyze-models":
         return _run_async(cmd_analyze_models(cfg, env, args.sims))
+    if command == "weekly-report":
+        return _run_async(cmd_weekly_report(cfg, env, args.send))
     if command == "testnet-check":
         return _run_async(cmd_testnet_check(cfg, env))
     if command == "paper-status":
