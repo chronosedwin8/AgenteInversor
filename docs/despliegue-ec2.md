@@ -16,6 +16,7 @@ Actualizado: 2026-11-02.
 | Paper trading de H1 (200 USDT virtuales) | 24/7 |
 | Spot Testnet (órdenes reales de prueba, 200 USDT virtuales) | 24/7 — las 2 semanas cuentan desde el 2026-11-02 16:13 UTC |
 | Informe semanal por correo | domingo 23:30 hora Bogotá a `REPORT_EMAIL_TO` |
+| Reporte diario por correo | todos los días 23:30 hora Bogotá a `REPORT_EMAIL_TO` |
 
 Comprobado desde São Paulo: `api.binance.com`, `testnet.binance.vision` y
 `data-api.binance.vision` responden 200.
@@ -38,11 +39,20 @@ sudo docker compose run --rm bot python -m bot.main paper-status --account testn
 sudo docker compose run --rm bot python -m bot.main testnet-check
 sudo docker compose run --rm bot python -m bot.main weekly-report          # ver el informe
 sudo docker compose run --rm bot python -m bot.main weekly-report --send   # enviar prueba
+sudo docker compose run --rm bot python -m bot.main daily-report           # ver el de hoy
+sudo docker compose run --rm bot python -m bot.main daily-report --day 2026-11-08
 git pull && sudo docker compose up -d --build                               # actualizar
 ```
 
 `reports/` debe pertenecer al usuario del contenedor (uid 10001) para guardar copias de los
 informes: `sudo chown -R 10001:10001 reports`.
+
+## Reporte diario
+
+Cubre el día de Bogotá completo: resultado y capital de cada cuenta, velas analizadas (6 al día) y,
+por par, la decisión de la estrategia en cada vela. Si faltan velas o hubo interrupción, emergencia
+o kill switch, el asunto dice REVISAR: un día sin operaciones nunca se confunde con un fallo. Si el
+bot está caído a las 23:30, el reporte pendiente se envía al volver.
 
 ## Correo semanal
 

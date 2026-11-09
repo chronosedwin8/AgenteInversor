@@ -14,6 +14,7 @@ Comandos:
   paper-status   estado del paper trading (capital, posiciones, operaciones, kill switch)
   testnet-check  verifica las claves de Spot Testnet (sin mostrarlas) y el reloj
   weekly-report  informe semanal (semana en curso); --send lo envía por correo
+  daily-report   reporte diario (hoy o --day AAAA-MM-DD); --send lo envía por correo
   risk-reset     reinicio MANUAL del kill switch de una cuenta (pide frase de confirmación)
 """
 
@@ -27,7 +28,7 @@ import signal
 import sys
 import time
 from collections.abc import Coroutine
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -368,6 +369,51 @@ async def cmd_testnet_check(cfg: AppConfig, env: EnvSettings) -> int:
     return 0 if abs(drift_ms) < 1000 else 1
 
 
+def _accounts_here(cfg: AppConfig, env: EnvSettings) -> list[str]:
+    """Solo las cuentas que corren en ESTA máquina (las demás serían copias congeladas)."""
+    here = ["paper"] if env.paper_enabled else []
+    if cfg.settings.execution.testnet_enabled and env.binance_testnet_api_key:
+        here.append("testnet")
+    return here
+
+
+async def cmd_daily_report(cfg: AppConfig, env: EnvSettings, send: bool, day: str | None) -> int:
+    from bot.monitoring.daily import build_daily
+    from bot.monitoring.weekly import MailConfig, send_mail
+
+    hyp = load_hypotheses(env.config_dir / "hypotheses.yaml")
+    conn = await connect(_dsn(env))
+    async with conn:
+        now, tz = _now(), cfg.settings.tz
+        target = date.fromisoformat(day) if day else now.astimezone(tz).date()
+        subject, body, html = await build_daily(
+            SessionStore(conn), CandleStore(conn), _accounts_here(cfg, env),
+            cfg.risk.initial_capital_usdt, cfg.settings.universe.active_symbols,
+            H1Breakout(H1Params(**hyp.H1.defaults)),  # type: ignore[arg-type]
+            target, tz, now,
+        )  # fmt: skip
+    print(subject)
+    print()
+    print(body)
+    preview = Path("reports") / "reporte-diario-vista-previa.html"
+    try:
+        preview.parent.mkdir(parents=True, exist_ok=True)
+        preview.write_text(html, encoding="utf-8")
+        print(f"vista previa HTML: {preview}")
+    except OSError as exc:
+        print(f"(no se pudo guardar la vista previa: {exc})")
+    if send:
+        mail = MailConfig(env.smtp_host, env.smtp_port, env.smtp_user,
+                          env.smtp_password.get_secret_value() if env.smtp_password else "",
+                          env.report_email_to)  # fmt: skip
+        if not mail.complete:
+            print("\nfalta SMTP_USER / SMTP_PASSWORD / REPORT_EMAIL_TO en .env")
+            return 1
+        await asyncio.to_thread(send_mail, mail, "[PRUEBA] " + subject, body, html)
+        print(f"\nenviado a {mail.to}")
+    return 0
+
+
 async def cmd_weekly_report(cfg: AppConfig, env: EnvSettings, send: bool) -> int:
     from bot.monitoring.weekly import (
         MailConfig,
@@ -384,11 +430,7 @@ async def cmd_weekly_report(cfg: AppConfig, env: EnvSettings, send: bool) -> int
         tz = cfg.settings.tz
         monday, _ = week_bounds(now.astimezone(tz).date())
         accounts = []
-        # Solo las cuentas que corren en ESTA máquina (las demás serían copias congeladas).
-        here = ["paper"] if env.paper_enabled else []
-        if cfg.settings.execution.testnet_enabled and env.binance_testnet_api_key:
-            here.append("testnet")
-        for name in here:
+        for name in _accounts_here(cfg, env):
             acc = await load_account(store, name, cfg.risk.initial_capital_usdt)
             if acc is not None:
                 accounts.append(acc)
@@ -439,6 +481,14 @@ async def _record_interruption(store: SessionStore, accounts: list[str]) -> None
             await store.add_event(account, now, "interruption", detail)
 
 
+def _clock_drift_ms(before: datetime, after: datetime, server: datetime) -> tuple[float, float]:
+    """(desfase respecto a Binance, margen de error): la hora del servidor se compara con el
+    punto medio de la petición; la latencia de red no es desfase del reloj."""
+    elapsed = after - before
+    drift = (before + elapsed / 2 - server).total_seconds() * 1000
+    return drift, elapsed.total_seconds() * 500
+
+
 async def _heartbeat(
     stop: asyncio.Event,
     every_s: int,
@@ -459,8 +509,10 @@ async def _heartbeat(
                 log.error("heartbeat_write_failed", error=repr(exc))
         if adapter is not None and beats % 10 == 0:  # reloj vs Binance cada ~10 min
             try:
-                drift_ms = (_now() - await adapter.server_time()).total_seconds() * 1000
-                if abs(drift_ms) > 1000:
+                before = _now()
+                server = await adapter.server_time()
+                drift_ms, margin_ms = _clock_drift_ms(before, _now(), server)
+                if abs(drift_ms) - margin_ms > 1000:
                     log.warning("clock_drift", alert=True, drift_ms=round(drift_ms))
             except Exception as exc:
                 log.warning("clock_check_failed", error=repr(exc))
@@ -614,6 +666,12 @@ async def cmd_run(cfg: AppConfig, env: EnvSettings) -> int:
         tasks.append(weekly_report_loop(stop, SessionStore(meta_conn), accounts,
                                         cfg.risk.initial_capital_usdt, cfg.settings.tz, mail,
                                         Path("reports")))  # fmt: skip
+        from bot.monitoring.daily import daily_report_loop
+
+        tasks.append(daily_report_loop(stop, SessionStore(meta_conn), CandleStore(meta_conn),
+                                       accounts, cfg.risk.initial_capital_usdt, symbols,
+                                       H1Breakout(H1Params(**hyp.H1.defaults)),  # type: ignore[arg-type]
+                                       cfg.settings.tz, mail, Path("reports")))  # fmt: skip
         if paper is not None:
             tasks.append(paper.run(stop))
         tasks += [
@@ -653,6 +711,9 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("testnet-check")
     wr = sub.add_parser("weekly-report")
     wr.add_argument("--send", action="store_true")
+    dr = sub.add_parser("daily-report")
+    dr.add_argument("--send", action="store_true")
+    dr.add_argument("--day", default=None, help="AAAA-MM-DD, hora Bogotá (por defecto: hoy)")
     ps = sub.add_parser("paper-status")
     ps.add_argument("--account", default="paper")
     rr = sub.add_parser("risk-reset")
@@ -702,6 +763,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_async(cmd_analyze_models(cfg, env, args.sims))
     if command == "weekly-report":
         return _run_async(cmd_weekly_report(cfg, env, args.send))
+    if command == "daily-report":
+        return _run_async(cmd_daily_report(cfg, env, args.send, args.day))
     if command == "testnet-check":
         return _run_async(cmd_testnet_check(cfg, env))
     if command == "paper-status":

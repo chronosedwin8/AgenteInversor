@@ -61,6 +61,17 @@ class SessionStore:
     async def mark_report_sent(self, week: str, at: datetime, emailed: bool) -> None:
         await self.add_event("system", at, "weekly_report", {"week": week, "emailed": emailed})
 
+    async def last_daily_report(self) -> str | None:
+        cur = await self._conn.execute(
+            "SELECT detail->>'day' FROM session_events WHERE account = 'system'"
+            " AND kind = 'daily_report' ORDER BY id DESC LIMIT 1"
+        )
+        row = await cur.fetchone()
+        return cast(str, row[0]) if row else None
+
+    async def mark_daily_report_sent(self, day: str, at: datetime, emailed: bool) -> None:
+        await self.add_event("system", at, "daily_report", {"day": day, "emailed": emailed})
+
     async def load(self, account: str) -> tuple[datetime | None, str] | None:
         cur = await self._conn.execute(
             "SELECT last_bar_time, state::text FROM session_state WHERE account = %s", (account,)

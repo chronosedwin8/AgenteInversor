@@ -17,6 +17,11 @@ services:
       timeout: 5s
       retries: 20
     restart: unless-stopped
+    logging: &logging  # el disco del servidor es pequeño: los logs no pueden crecer sin límite
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   bot:
     build:
@@ -36,6 +41,7 @@ services:
       db:
         condition: service_healthy
     restart: unless-stopped
+    logging: *logging
 
   # Mismo pipeline que CI: docker compose --profile ci run --rm --build ci
   ci:

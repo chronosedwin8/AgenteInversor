@@ -59,7 +59,7 @@ al terminar cada fase se muestra qué se hizo y cómo se cumplen sus criterios d
 ## Despliegue
 
 Todo corre en la EC2 de São Paulo (sa-east-1, Ubuntu, `DATA_INTERVALS=4h,1d`): paper +
-testnet 24/7 e informe semanal por correo (docs/despliegue-ec2.md). Binance responde 451 desde
+testnet 24/7, reporte diario e informe semanal por correo (docs/despliegue-ec2.md). Binance responde 451 desde
 EE. UU.: nunca desplegar allí ni usar proxies/VPN.
 
 ## Comandos
@@ -72,6 +72,7 @@ docker compose run --rm bot python -m bot.main paper-status  # estado del paper 
 docker compose run --rm bot python -m bot.main audit-h1  # auditoría pre-registrada de H1
 docker compose run --rm bot python -m bot.main analyze-models  # comparación A/B/C/D y régimen
 docker compose run --rm bot python -m bot.main testnet-check   # verifica claves de testnet
+docker compose run --rm bot python -m bot.main daily-report    # reporte diario (--day, --send)
 docker compose --profile ci run --rm --build ci           # mismo pipeline que CI (ruff, mypy, pytest)
 ```
 
