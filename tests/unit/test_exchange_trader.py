@@ -149,3 +149,34 @@ async def test_clock_drift_pauses_entries_and_recovers(btc: SymbolFilters) -> No
     server.t = clock.t
     await trader.reconcile()
     assert trader.paused_reason is None
+
+
+class _SlowTimeExchange(FakeExchange):
+    """Binance responde a mitad de `latency`; `skew` es el desfase real del reloj local."""
+
+    latency = timedelta(0)
+    skew = timedelta(0)
+
+    async def server_time(self) -> Any:
+        self.clock.t += self.latency / 2  # type: ignore[attr-defined]
+        server = self.clock() + self.skew
+        self.clock.t += self.latency / 2  # type: ignore[attr-defined]
+        return server
+
+
+async def test_network_latency_does_not_pause_but_real_drift_does(btc: SymbolFilters) -> None:
+    clock = Clock(T0)
+    ex = _SlowTimeExchange({"BTCUSDT": D(100)}, clock)
+    trader = _trader(MemoryStore(), MemorySessionStore(), ex, btc, clock)
+
+    ex.latency = timedelta(seconds=3)  # el caso real: arranque lento en la EC2
+    assert abs(await trader.check_clock()) < 1
+    assert trader.paused_reason is None
+
+    ex.latency, ex.skew = timedelta(milliseconds=50), timedelta(seconds=3)  # desfase de verdad
+    assert await trader.check_clock() == pytest.approx(-3000, abs=1)
+    assert trader.paused_reason is not None and "reloj desincronizado" in trader.paused_reason
+
+    ex.skew = timedelta(0)  # se recupera solo al volver a estar sincronizado
+    await trader.check_clock()
+    assert trader.paused_reason is None

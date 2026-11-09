@@ -477,9 +477,11 @@ class ExchangeTrader:
             return float("inf")
         if abs(offset) > max_drift_ms:
             log.warning(f"{self.account}_clock_offset_corrected", offset_ms=round(offset))
+        before = self.clock()
         server = await self.client.server_time()
-        corrected_now = self.clock() + timedelta(milliseconds=offset)
-        drift = (corrected_now - server).total_seconds() * 1000
+        # Punto medio de la petición: la latencia de red no es desfase del reloj.
+        midpoint = before + (self.clock() - before) / 2
+        drift = (midpoint + timedelta(milliseconds=offset) - server).total_seconds() * 1000
         if abs(drift) > max_drift_ms:
             self._pause(f"reloj desincronizado {drift:.0f} ms")
         elif self.paused_reason and self.paused_reason.startswith("reloj desincronizado"):
