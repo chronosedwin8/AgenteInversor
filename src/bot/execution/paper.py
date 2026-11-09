@@ -27,7 +27,7 @@ from bot.exchange.filters import SymbolFilters
 from bot.execution.session import TradingSession
 from bot.execution.state import dump_session, load_session
 from bot.execution.store import SessionStore
-from bot.log import get_logger
+from bot.log import event_fields, get_logger
 from bot.strategy.features import Bar, build_bars
 from bot.strategy.hypotheses import H1Breakout, H1Params
 
@@ -75,7 +75,8 @@ class PaperTrader:
     def _on_event(self, kind: str, data: dict[str, Any]) -> None:
         at = data.pop("at", self.clock())
         self._events.append((at, kind, {k: str(v) for k, v in data.items()}))
-        log.info("paper_" + kind, account=self.account, **{k: str(v) for k, v in data.items()})
+        fields = event_fields({k: str(v) for k, v in data.items()})
+        log.info("paper_" + kind, account=self.account, **fields)
 
     # ------------------------------------------------------------ arranque
 

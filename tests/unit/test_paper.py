@@ -128,3 +128,14 @@ async def test_kill_switch_state_persists_in_paper(filters: SymbolFilters) -> No
     )
     assert sessions.trades_rows == []
     assert RiskEventKind.KILL_SWITCH not in [e.kind for e in restarted.session.stats.risk_events]
+
+
+def test_risk_event_can_be_logged_without_breaking_the_session() -> None:
+    """Regresión: `event` es un nombre reservado de structlog y lanzaba TypeError."""
+    from types import SimpleNamespace
+
+    from bot.execution.paper import PaperTrader
+
+    stub = SimpleNamespace(clock=lambda: T0, _events=[], account="paper")
+    PaperTrader._on_event(stub, "risk_event", {"event": "kill_switch", "at": T0})  # type: ignore[arg-type]
+    assert stub._events == [(T0, "risk_event", {"event": "kill_switch"})]

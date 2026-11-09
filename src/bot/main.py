@@ -13,6 +13,7 @@ Comandos:
   analyze-models comparación A/B/C/D y análisis por régimen (docs/fase-testnet-plan.md)
   paper-status   estado del paper trading (capital, posiciones, operaciones, kill switch)
   testnet-check  verifica las claves de Spot Testnet (sin mostrarlas) y el reloj
+  testnet-drill  simulacro de kill switch en Spot Testnet (exige --confirm)
   weekly-report  informe semanal (semana en curso); --send lo envía por correo
   daily-report   reporte diario (hoy o --day AAAA-MM-DD); --send lo envía por correo
   risk-reset     reinicio MANUAL del kill switch de una cuenta (pide frase de confirmación)
@@ -266,8 +267,9 @@ async def cmd_paper_status(env: EnvSettings, account: str) -> int:
         pnl = sum(float(t[6]) for t in trades)
         print(f"cuenta {account}: última vela procesada {last}")
         print(
-            f"  caja {d['cash']['$dec']} USDT; posiciones abiertas: {sorted(d['open'])}; "
-            f"órdenes pendientes: {sorted(d['pending'])}"
+            f"  caja {d['cash']['$dec']} USDT; "
+            f"posiciones abiertas: {sorted(d.get('open') or d.get('positions') or {})}; "
+            f"órdenes pendientes: {sorted(d.get('pending') or {})}"
         )
         print(f"  operaciones cerradas: {len(trades)}; resultado {pnl:+.4f} USDT")
         ks = "ACTIVO" if risk.get("kill_switch") else "inactivo"
@@ -367,6 +369,66 @@ async def cmd_testnet_check(cfg: AppConfig, env: EnvSettings) -> int:
     print(f"órdenes abiertas: {len(open_orders)}")
     print("Las claves de producción (BINANCE_API_KEY) no se usan para la testnet.")
     return 0 if abs(drift_ms) < 1000 else 1
+
+
+async def cmd_testnet_drill(
+    cfg: AppConfig, env: EnvSettings, confirm: str | None, symbol: str
+) -> int:
+    """Simulacro de kill switch: envía órdenes de PRUEBA a Spot Testnet, en una cuenta aparte."""
+    from bot.exchange.trading import BinanceSpotTrading
+    from bot.execution.drill import CONFIRM_PHRASE, DRILL_PREFIX, run_kill_switch_drill
+    from bot.execution.live import ExchangeTrader
+
+    if confirm != CONFIRM_PHRASE:
+        print(f"Este comando envía órdenes a Spot Testnet. Confirma con --confirm {CONFIRM_PHRASE}")
+        return 2
+    key, secret = env.binance_testnet_api_key, env.binance_testnet_api_secret
+    if not (key and secret):
+        print("faltan BINANCE_TESTNET_API_KEY / BINANCE_TESTNET_API_SECRET en .env")
+        return 1
+    url = cfg.settings.execution.testnet_url
+    client = BinanceSpotTrading(url, key.get_secret_value(), secret.get_secret_value(), env)
+    if client.production:
+        print("el simulacro solo se ejecuta contra Spot Testnet")
+        return 1
+    hyp = load_hypotheses(env.config_dir / "hypotheses.yaml")
+    adapter = _adapter(cfg)
+    filters = await adapter.get_symbol_filters([symbol])
+    stamp = f"{_now():%Y%m%d-%H%M}"
+    conns: dict[int, Any] = {}
+
+    async def boot() -> ExchangeTrader:
+        conn = await connect(_dsn(env))
+        store = CandleStore(conn)
+        trader = ExchangeTrader(
+            cfg,
+            H1Params(**hyp.H1.defaults),  # type: ignore[arg-type]
+            store,
+            SessionStore(conn),
+            HistorySync(store, adapter, None),
+            client,
+            filters,
+            account=f"drill-{stamp}",
+            order_prefix=DRILL_PREFIX,
+        )
+        conns[id(trader)] = conn
+        await trader.start()
+        return trader
+
+    async def release(trader: ExchangeTrader) -> None:
+        await conns.pop(id(trader)).close()
+
+    report = await run_kill_switch_drill(boot, release, symbol)
+    text = report.render()
+    print(text)
+    out = Path("reports") / f"simulacro-kill-switch-{stamp}.md"
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
+        print(f"informe: {out}")
+    except OSError as exc:
+        print(f"(no se pudo guardar el informe: {exc})")
+    return 0 if report.ok else 1
 
 
 def _accounts_here(cfg: AppConfig, env: EnvSettings) -> list[str]:
@@ -709,6 +771,9 @@ def _parser() -> argparse.ArgumentParser:
     am = sub.add_parser("analyze-models")
     am.add_argument("--sims", type=int, default=1000)
     sub.add_parser("testnet-check")
+    td = sub.add_parser("testnet-drill")
+    td.add_argument("--confirm", default=None)
+    td.add_argument("--symbol", default="BTCUSDT")
     wr = sub.add_parser("weekly-report")
     wr.add_argument("--send", action="store_true")
     dr = sub.add_parser("daily-report")
@@ -763,6 +828,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_async(cmd_analyze_models(cfg, env, args.sims))
     if command == "weekly-report":
         return _run_async(cmd_weekly_report(cfg, env, args.send))
+    if command == "testnet-drill":
+        return _run_async(cmd_testnet_drill(cfg, env, args.confirm, args.symbol))
     if command == "daily-report":
         return _run_async(cmd_daily_report(cfg, env, args.send, args.day))
     if command == "testnet-check":

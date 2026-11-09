@@ -86,3 +86,9 @@ def configure_logging(level: str = "INFO", fmt: str = "json") -> None:
 def get_logger(name: str | None = None, **bind: Any) -> Any:
     logger = structlog.get_logger(name)
     return logger.bind(**bind) if bind else logger
+
+
+def event_fields(data: dict[str, str]) -> dict[str, str]:
+    """Campos seguros para el log: "event" es el nombre reservado del mensaje en structlog y
+    repetirlo lanza TypeError (rompería justo al registrar un evento de riesgo)."""
+    return {("kind" if k == "event" else k): v for k, v in data.items()}

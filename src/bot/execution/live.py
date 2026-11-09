@@ -51,7 +51,7 @@ from bot.execution.orders import (
 )
 from bot.execution.state import _dec, _enc
 from bot.execution.store import SessionStore
-from bot.log import get_logger
+from bot.log import event_fields, get_logger
 from bot.portfolio.portfolio import Holding, Portfolio
 from bot.risk.manager import EntryIntent, RiskEventKind, RiskManager, RiskState
 from bot.strategy.features import Bar, build_bars
@@ -90,6 +90,7 @@ class ExchangeTrader:
         clock: Callable[[], datetime] = _utcnow,
         reconcile_every_s: float = 300.0,
         sleep: Callable[[float], Any] = asyncio.sleep,
+        order_prefix: str = "h1",
     ):
         self.app = app
         self.symbols = tuple(sorted(filters))
@@ -103,7 +104,9 @@ class ExchangeTrader:
         self.fee = app.strategy.costs.fee_rate
         self.pf = Portfolio(app.risk.initial_capital_usdt, self.fee)
         self.risk = RiskManager(app.risk, tz=app.settings.tz)
-        self.om = OrderManager(client, self.risk, filters, self.fee, sleep=sleep)
+        self.om = OrderManager(
+            client, self.risk, filters, self.fee, prefix=order_prefix, sleep=sleep
+        )
         self.positions: dict[str, tuple[PositionOrders, PositionPlan]] = {}
         self.emergencies: dict[str, str] = {}  # símbolo → motivo (cierre no confirmado)
         self.paused_reason: str | None = None
@@ -114,8 +117,9 @@ class ExchangeTrader:
 
     def _event(self, kind: str, at: datetime | None = None, **data: Any) -> None:
         at = at or self.clock()
-        self._events.append((at, kind, {k: str(v) for k, v in data.items()}))
-        log.info(f"{self.account}_{kind}", **{k: str(v) for k, v in data.items()})
+        detail = {k: str(v) for k, v in data.items()}
+        self._events.append((at, kind, detail))
+        log.info(f"{self.account}_{kind}", **event_fields(detail))
 
     @property
     def can_open(self) -> bool:

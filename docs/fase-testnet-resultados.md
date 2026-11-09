@@ -82,6 +82,29 @@ apertura).
 Estos tests usan un exchange simulado. La validación en el exchange real de pruebas es la
 testnet (criterios técnicos en el plan §5).
 
+## 4b. Pruebas en el servidor (criterios técnicos del plan, §5)
+
+**Reinicios forzados: 2 de 2 superados (2026-11-09, 14:47 y 14:48 UTC).** Se mató el proceso con
+`kill -9` en la EC2 de São Paulo. En ambos casos Docker lo levantó en menos de 1 s, el estado de
+`paper` y `testnet` quedó idéntico (mismo hash, misma última vela, ninguna vela procesada dos
+veces), se recuperó el bloqueo de cuenta y la testnet volvió a estar operativa en unos 20 s. Límite
+de esta evidencia: no había posiciones abiertas; el reinicio con una posición abierta forma parte
+del simulacro de kill switch.
+
+**Simulacro de kill switch:** comando `testnet-drill`. Cuenta lógica y prefijo de órdenes propios
+(no afecta a la prueba de dos semanas). Abre una posición por el camino normal (RiskManager,
+compra, stop), reinicia con la posición abierta, dispara el kill switch y verifica en el exchange
+cero órdenes, venta FILLED y stop cancelado. Deja su informe en `reports/`.
+
+**Fallo encontrado al construir el simulacro (corregido el 2026-11-09).** En `ExchangeTrader` y
+`PaperTrader`, cualquier evento del RiskManager lanzaba `TypeError` al escribirse en el log (`event` es un nombre
+reservado de structlog), antes de llamar a `_kill`. El kill switch quedaba activo pero **no cerraba
+las posiciones**. El test anterior llamaba a `_kill` directamente y no lo detectó; ahora hay una
+regresión por el bucle real de velas
+(`test_kill_switch_through_the_real_candle_loop_closes_everything`). No llegó a ocurrir: la testnet
+no ha tenido posiciones ni eventos de riesgo. El paper trading tenía el mismo error en su registro
+y también se corrigió (`bot.log.event_fields`).
+
 ## 5. Credenciales
 
 - El bot solo usa `BINANCE_TESTNET_API_KEY` / `BINANCE_TESTNET_API_SECRET` para la testnet; nunca

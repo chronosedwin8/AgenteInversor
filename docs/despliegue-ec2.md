@@ -42,6 +42,7 @@ sudo docker compose run --rm bot python -m bot.main weekly-report --send   # env
 sudo docker compose run --rm bot python -m bot.main daily-report           # ver el de hoy
 sudo docker compose run --rm bot python -m bot.main daily-report --day 2026-11-08
 git pull && sudo docker compose up -d --build                               # actualizar
+sudo docker compose exec -T bot python -m bot.main testnet-drill --confirm SIMULACRO-TESTNET
 ```
 
 `reports/` debe pertenecer al usuario del contenedor (uid 10001) para guardar copias de los

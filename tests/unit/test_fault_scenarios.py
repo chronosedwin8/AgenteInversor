@@ -209,3 +209,23 @@ async def test_connection_lost_during_close_keeps_emergency_and_retries(btc: Sym
     await restarted.reconcile()
     assert restarted.positions == {} and restarted.emergencies == {}
     assert w.ex.sent["SELL:MARKET"] == 1
+
+
+async def test_kill_switch_through_the_real_candle_loop_closes_everything(
+    btc: SymbolFilters,
+) -> None:
+    """Regresión: el evento de riesgo rompía el log (structlog) antes de cerrar posiciones."""
+    w = World(btc)
+    t = await w.boot()
+    await w.until_position()
+    t.pf.cash -= D(60)  # el capital cae más de un 10 % desde el máximo
+    await w.advance()
+    assert t.risk.kill_switch_active
+    assert t.positions == {} and t.emergencies == {}
+    assert await w.ex.open_orders() == []
+    assert w.ex.sent["SELL:MARKET"] == 1
+    kinds = [e[1] for e in w.sessions.events]
+    assert "risk_event" in kinds and "kill_switch_cleanup" in kinds
+    # El detalle persistido conserva su nombre; solo cambia el campo del log.
+    risk = [e[2] for e in w.sessions.events if e[1] == "risk_event"]
+    assert all("event" in d for d in risk)
